@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:local_auth/local_auth.dart';
-import '../../core/services/auth_service.dart';
 import 'hologram_ui.dart';
-import 'admin_ui.dart';
 
+// شاشة الترحيب بعد تسجيل الدخول: اختيار اللغة والجنس (لتخصيص صوت آيرس)
+// أزرار تسجيل الدخول اتنقلت لشاشة Login الجديدة (V3)
 class OnboardingUI extends StatefulWidget {
   const OnboardingUI({super.key});
   @override
@@ -13,37 +12,13 @@ class OnboardingUI extends StatefulWidget {
 class _OnboardingUIState extends State<OnboardingUI> {
   String? gender;
   String language = "ar";
-  final auth = AuthService();
-  final LocalAuthentication biometricAuth = LocalAuthentication();
-
-  void _authenticateBiometric() async {
-    try {
-      bool canCheck = await biometricAuth.canCheckBiometrics;
-      if (canCheck) {
-        bool authenticated = await biometricAuth.authenticate(
-          localizedReason: 'جاري مسح شبكية العين للمزامنة...',
-          options: const AuthenticationOptions(biometricOnly: true),
-        );
-        if (authenticated) {
-          _goToNextScreen();
-        }
-      } else {
-        _goToNextScreen(); // لو الجهاز مش بيدعم
-      }
-    } catch (e) {
-      _goToNextScreen();
-    }
-  }
 
   void _goToNextScreen() {
-    if (auth.isAdmin()) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AdminUI()));
-    } else {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => HologramUI(gender: gender, language: language)),
-      );
-    }
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+          builder: (_) => HologramUI(gender: gender, language: language)),
+    );
   }
 
   @override
@@ -85,25 +60,16 @@ class _OnboardingUIState extends State<OnboardingUI> {
                 ],
               ),
               const SizedBox(height: 40),
-              if (gender != null) ...[
-                const Text("سجل دخولك لمزامنة البيانات:", style: TextStyle(color: Colors.white)),
-                const SizedBox(height: 10),
+              if (gender != null)
                 ElevatedButton.icon(
-                  onPressed: () { auth.signInWithGoogle(); _authenticateBiometric(); },
-                  icon: const Icon(Icons.g_mobiledata, color: Colors.white),
-                  label: const Text("Google"),
+                  onPressed: _goToNextScreen,
+                  icon: const Icon(Icons.rocket_launch, color: Colors.black),
+                  label: const Text("ابدأ", style: TextStyle(color: Colors.black)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.cyanAccent,
+                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 14),
+                  ),
                 ),
-                ElevatedButton.icon(
-                  onPressed: () { auth.signInWithMicrosoft(); _authenticateBiometric(); },
-                  icon: const Icon(Icons.window, color: Colors.white),
-                  label: const Text("Microsoft"),
-                ),
-                ElevatedButton.icon(
-                  onPressed: () { auth.signInWithApple(); _authenticateBiometric(); },
-                  icon: const Icon(Icons.apple, color: Colors.white),
-                  label: const Text("Apple"),
-                ),
-              ],
             ],
           ),
         ),
