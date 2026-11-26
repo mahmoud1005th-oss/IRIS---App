@@ -49,6 +49,12 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     duration: const Duration(milliseconds: 1400),
   )..repeat();
 
+  // متحكم دوران اللوجو والنبض في شاشة التلفزيون
+  late final AnimationController _orbitController = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 6),
+  )..repeat();
+
   @override
   void dispose() {
     _email.dispose();
@@ -58,6 +64,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     _regPassword.dispose();
     _scanController.dispose();
     _rainController.dispose();
+    _orbitController.dispose();
     super.dispose();
   }
 
@@ -163,8 +170,413 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          if (isWide) _buildRainLayout(uiScale, isTv) else _buildMobile(uiScale),
+          if (isTv)
+            _buildTvLayout(uiScale)
+          else if (isWide)
+            _buildRainLayout(uiScale, isTv)
+          else
+            _buildMobile(uiScale),
           if (_scanning) _buildScanningOverlay(uiScale),
+        ],
+      ),
+    );
+  }
+
+  // ============ تخطيط التلفزيون: كارت متوهج بجزأين + لوجو بيلف ٣٦٠ درجة بنبض أزرق ============
+  // مرجع التصميم: فيديو التلفزيون اللي محمود بعته - البنفسجي بقى أزرق،
+  // والدوامة ورا كلمة Welcome اتبدلت بلوجو آيرس بيدور مع نبض أزرق
+  Widget _buildTvLayout(double uiScale) {
+    final double cardW = 1150 * uiScale / 1.35;
+    final double cardH = 640 * uiScale / 1.35;
+
+    return Center(
+      child: Container(
+        width: cardW,
+        height: cardH,
+        decoration: BoxDecoration(
+          color: const Color(0xFF0B0E14),
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: kIrisAccent.withOpacity(0.5), width: 1.4),
+          boxShadow: [
+            BoxShadow(
+              color: kIrisAccent.withOpacity(0.35),
+              blurRadius: 70,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(28),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final half = constraints.maxWidth / 2;
+              return Stack(
+                children: [
+                  // نجوم خفيفة في الخلفية
+                  CustomPaint(
+                      size: constraints.biggest,
+                      painter: _StarsPainter()),
+                  // بانيل الترحيب (بيتنقل بين اليمين والشمال)
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 700),
+                    curve: Curves.easeInOut,
+                    left: _showRegister ? 0 : half,
+                    top: 0,
+                    width: half,
+                    height: constraints.maxHeight,
+                    child: _tvWelcomePanel(uiScale),
+                  ),
+                  // الفورم
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 700),
+                    curve: Curves.easeInOut,
+                    left: _showRegister ? half : 0,
+                    top: 0,
+                    width: half,
+                    height: constraints.maxHeight,
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 600),
+                      transitionBuilder: (child, anim) {
+                        final curved = CurvedAnimation(
+                            parent: anim, curve: Curves.easeInOut);
+                        return AnimatedBuilder(
+                          animation: curved,
+                          builder: (_, c) => ImageFiltered(
+                            imageFilter: ui.ImageFilter.blur(
+                              sigmaX: (1 - curved.value) * 8,
+                              sigmaY: (1 - curved.value) * 8,
+                            ),
+                            child:
+                                Opacity(opacity: curved.value, child: c),
+                          ),
+                          child: SlideTransition(
+                            position: Tween<Offset>(
+                              begin: Offset(
+                                  _showRegister ? 0.15 : -0.15, 0),
+                              end: Offset.zero,
+                            ).animate(curved),
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: _showRegister
+                          ? _tvRegisterForm(uiScale,
+                              key: const ValueKey('tvreg'))
+                          : _tvLoginForm(uiScale,
+                              key: const ValueKey('tvlogin')),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  // بانيل الترحيب في التلفزيون: اللوجو بيلف ٣٦٠ درجة مع نبض أزرق
+  Widget _tvWelcomePanel(double uiScale) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: RadialGradient(
+          center: Alignment.center,
+          radius: 1.1,
+          colors: [
+            kIrisAccentDeep.withOpacity(0.22),
+            const Color(0xFF0B0E14),
+          ],
+        ),
+      ),
+      child: Center(
+        child: AnimatedBuilder(
+          animation: _orbitController,
+          builder: (context, _) {
+            final pulse =
+                0.5 + 0.5 * sin(_orbitController.value * 2 * pi);
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 180 * uiScale / 1.2,
+                  height: 180 * uiScale / 1.2,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: kIrisAccent
+                            .withOpacity(0.35 + 0.35 * pulse),
+                        blurRadius: 50 + 30 * pulse,
+                        spreadRadius: 4 + 6 * pulse,
+                      ),
+                    ],
+                  ),
+                  child: RotationTransition(
+                    turns: _orbitController,
+                    child: ClipOval(
+                      child: Image.asset('assets/logo.png',
+                          fit: BoxFit.cover),
+                    ),
+                  ),
+                ),
+                SizedBox(height: 28 * uiScale / 1.2),
+                Text(
+                  'Welcome!',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 30 * uiScale / 1.2,
+                    fontWeight: FontWeight.bold,
+                    shadows: [
+                      Shadow(
+                        color:
+                            kIrisAccent.withOpacity(0.6 + 0.4 * pulse),
+                        blurRadius: 24,
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: 10 * uiScale / 1.2),
+                Text(
+                  _showRegister
+                      ? 'Already have an account?\nLog in with your email and password.'
+                      : 'Sign up here to create your account\nand start your journey with I.R.I.S',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: Colors.white60,
+                      fontSize: 13 * uiScale / 1.2,
+                      height: 1.5),
+                ),
+                SizedBox(height: 22 * uiScale / 1.2),
+                SizedBox(
+                  width: 170 * uiScale / 1.2,
+                  height: 46 * uiScale / 1.2,
+                  child: OutlinedButton(
+                    onPressed: () => setState(() {
+                      _showRegister = !_showRegister;
+                      _error = null;
+                    }),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(
+                          color: kIrisAccent, width: 1.6),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24)),
+                    ),
+                    child: Text(
+                      _showRegister ? 'Login' : 'Sign Up',
+                      style: TextStyle(
+                          color: kIrisAccent,
+                          fontSize: 15 * uiScale / 1.2,
+                          fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _tvLoginForm(double uiScale, {Key? key}) {
+    return Padding(
+      key: key,
+      padding: EdgeInsets.symmetric(
+          horizontal: 44 * uiScale / 1.35, vertical: 28),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Welcome Back',
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 24 * uiScale / 1.2,
+                  fontWeight: FontWeight.bold)),
+          SizedBox(height: 4),
+          Text('Sign in to continue your journey with I.R.I.S',
+              style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 12 * uiScale / 1.2)),
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.redAccent.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                    color: Colors.redAccent.withOpacity(0.5)),
+              ),
+              child: Text(_error!,
+                  style: const TextStyle(
+                      color: Colors.redAccent, fontSize: 12)),
+            ),
+          ],
+          SizedBox(height: 16 * uiScale / 1.35),
+          _underlineField(
+              controller: _email,
+              label: 'Email',
+              icon: Icons.mail_outline,
+              uiScale: uiScale / 1.2),
+          SizedBox(height: 14 * uiScale / 1.35),
+          _underlineField(
+              controller: _password,
+              label: 'Password',
+              icon: Icons.lock_outline,
+              obscure: true,
+              uiScale: uiScale / 1.2),
+          SizedBox(height: 10),
+          Row(
+            children: [
+              SizedBox(
+                width: 22,
+                height: 22,
+                child: Checkbox(
+                  value: _keepSignedIn,
+                  onChanged: (v) =>
+                      setState(() => _keepSignedIn = v ?? true),
+                  activeColor: kIrisAccent,
+                  checkColor: Colors.black,
+                  side: const BorderSide(color: Colors.white38),
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Text('Remember me',
+                  style:
+                      TextStyle(color: Colors.white70, fontSize: 12)),
+              const Spacer(),
+              GestureDetector(
+                onTap: () {},
+                child: const Text('Forgot password?',
+                    style:
+                        TextStyle(color: kIrisAccent, fontSize: 12)),
+              ),
+            ],
+          ),
+          SizedBox(height: 18 * uiScale / 1.35),
+          _glowButton(
+              label: 'Login',
+              uiScale: uiScale / 1.2,
+              onPressed: _busy ? null : _signInWithEmail,
+              autofocus: true),
+          const SizedBox(height: 8),
+          Center(
+            child: TextButton.icon(
+              onPressed: _signInWithFace,
+              icon: const Icon(Icons.face_unlock_outlined,
+                  color: kIrisAccent, size: 18),
+              label: const Text('Face scan',
+                  style: TextStyle(color: kIrisAccent, fontSize: 12)),
+            ),
+          ),
+          _orDivider(uiScale / 1.2),
+          const SizedBox(height: 10),
+          _socialRow(uiScale / 1.2),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text('New to I.R.I.S? ',
+                  style:
+                      TextStyle(color: Colors.white54, fontSize: 12)),
+              GestureDetector(
+                onTap: () => setState(() {
+                  _showRegister = true;
+                  _error = null;
+                }),
+                child: const Text('Create an account',
+                    style: TextStyle(
+                        color: kIrisAccent,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tvRegisterForm(double uiScale, {Key? key}) {
+    return Padding(
+      key: key,
+      padding: EdgeInsets.symmetric(
+          horizontal: 44 * uiScale / 1.35, vertical: 28),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Create Account',
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 24 * uiScale / 1.2,
+                  fontWeight: FontWeight.bold)),
+          SizedBox(height: 4),
+          Text('Join I.R.I.S - your assistant is waiting for you',
+              style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 12 * uiScale / 1.2)),
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.redAccent.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                    color: Colors.redAccent.withOpacity(0.5)),
+              ),
+              child: Text(_error!,
+                  style: const TextStyle(
+                      color: Colors.redAccent, fontSize: 12)),
+            ),
+          ],
+          SizedBox(height: 16 * uiScale / 1.35),
+          _underlineField(
+              controller: _regName,
+              label: 'Your Name',
+              icon: Icons.badge_outlined,
+              uiScale: uiScale / 1.2),
+          SizedBox(height: 14 * uiScale / 1.35),
+          _underlineField(
+              controller: _regEmail,
+              label: 'Email',
+              icon: Icons.mail_outline,
+              uiScale: uiScale / 1.2),
+          SizedBox(height: 14 * uiScale / 1.35),
+          _underlineField(
+              controller: _regPassword,
+              label: 'Password',
+              icon: Icons.lock_outline,
+              obscure: true,
+              uiScale: uiScale / 1.2),
+          SizedBox(height: 20 * uiScale / 1.35),
+          _glowButton(
+              label: 'Create My Account',
+              uiScale: uiScale / 1.2,
+              onPressed: _busy ? null : _register),
+          const SizedBox(height: 12),
+          _socialRow(uiScale / 1.2),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text('Already have an account? ',
+                  style:
+                      TextStyle(color: Colors.white54, fontSize: 12)),
+              GestureDetector(
+                onTap: () => setState(() {
+                  _showRegister = false;
+                  _error = null;
+                }),
+                child: const Text('Login instead',
+                    style: TextStyle(
+                        color: kIrisAccent,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700)),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -914,6 +1326,26 @@ class RainPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant RainPainter oldDelegate) => true;
+}
+
+// نجوم خفيفة ثابتة في خلفية كارت التلفزيون
+class _StarsPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rnd = Random(11);
+    final paint = Paint();
+    for (int i = 0; i < 60; i++) {
+      paint.color = Colors.white.withOpacity(0.05 + rnd.nextDouble() * 0.15);
+      canvas.drawCircle(
+        Offset(rnd.nextDouble() * size.width, rnd.nextDouble() * size.height),
+        0.6 + rnd.nextDouble() * 1.2,
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class FaceScanPainter extends CustomPainter {
