@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:workmanager/workmanager.dart';
-import 'features/ui/onboarding_ui.dart';
+import 'features/ui/intro_splash.dart';
 import 'features/ui/hologram_ui.dart';
 import 'features/ui/admin_ui.dart';
 import 'core/services/auth_service.dart';
@@ -58,7 +58,8 @@ class IrisApp extends StatelessWidget {
   }
 }
 
-// بوابة الدخول: لو فيه جلسة مسجلة يدخل على طول، غير كده يبدأ من الـ Onboarding
+// بوابة الدخول: لو فيه جلسة مسجلة يدخل على طول، غير كده يبدأ بأنيميشن البداية
+// وبعدين اللوجو، وبعدين شاشة تسجيل الدخول (V3)
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
@@ -68,6 +69,6 @@ class AuthGate extends StatelessWidget {
     if (auth.isSignedIn) {
       return auth.isAdmin() ? const AdminUI() : const HologramUI();
     }
-    return const OnboardingUI();
+    return const IntroSplashScreen();
   }
 }
