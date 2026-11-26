@@ -2,6 +2,7 @@ import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../core/services/auth_service.dart';
 import 'onboarding_ui.dart';
 import 'admin_ui.dart';
@@ -1102,31 +1103,31 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     );
   }
 
-  // أزرار المواقع: جوجل ومايكروسوفت وأبل وجيت هاب
+  // أزرار المواقع باللوجوهات الرسمية: جوجل ومايكروسوفت وأبل وجيت هاب
   Widget _socialRow(double uiScale) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         _socialButton(
-            icon: Icons.g_mobiledata,
+            icon: FontAwesomeIcons.google,
             label: 'Google',
             uiScale: uiScale,
             onTap: () => _signInSocial(_auth.signInWithGoogle)),
         SizedBox(width: 12 * uiScale),
         _socialButton(
-            icon: Icons.window,
+            icon: FontAwesomeIcons.microsoft,
             label: 'Microsoft',
             uiScale: uiScale,
             onTap: () => _signInSocial(_auth.signInWithMicrosoft)),
         SizedBox(width: 12 * uiScale),
         _socialButton(
-            icon: Icons.apple,
+            icon: FontAwesomeIcons.apple,
             label: 'Apple',
             uiScale: uiScale,
             onTap: () => _signInSocial(_auth.signInWithApple)),
         SizedBox(width: 12 * uiScale),
         _socialButton(
-            icon: Icons.code,
+            icon: FontAwesomeIcons.github,
             label: 'GitHub',
             uiScale: uiScale,
             onTap: () => _signInSocial(_auth.signInWithGitHub)),
@@ -1226,7 +1227,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: Colors.white, size: 26 * uiScale),
+            FaIcon(icon, color: Colors.white, size: 22 * uiScale),
             SizedBox(height: 4 * uiScale),
             Text(label,
                 style: TextStyle(
