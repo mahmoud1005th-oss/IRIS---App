@@ -14,6 +14,7 @@ jobs:
           flutter-version: '3.27.4'
           channel: 'stable'
       - run: flutter create . --platforms=android --project-name iris_app
+      - run: sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/' android/app/build.gradle
       - run: flutter pub get
       - run: dart run flutter_launcher_icons
       - run: flutter build apk --debug
