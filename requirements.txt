@@ -1,6 +1,0 @@
-streamlit
-requests
-ddgs
-edge-tts
-Pillow
-moviepy
