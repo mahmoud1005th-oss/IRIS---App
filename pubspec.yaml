@@ -1,6 +1,6 @@
 name: iris_app
 description: I.R.I.S - Infinity Retinal Intelligence System
-version: 3.0.0+3
+version: 3.0.1+4
 environment:
   sdk: '>=3.0.0 <4.0.0'
 dependencies:
@@ -15,6 +15,7 @@ dependencies:
   path: ^1.8.3
   provider: ^6.1.1
   workmanager: ^0.5.2
+  font_awesome_flutter: ^10.8.0
 dev_dependencies:
   flutter_launcher_icons: ^0.13.1
 flutter:
