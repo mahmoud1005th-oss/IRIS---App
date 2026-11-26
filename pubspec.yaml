@@ -1,6 +1,6 @@
 name: iris_app
 description: I.R.I.S - Infinity Retinal Intelligence System
-version: 2.0.0+2
+version: 3.0.0+3
 environment:
   sdk: '>=3.0.0 <4.0.0'
 dependencies:
