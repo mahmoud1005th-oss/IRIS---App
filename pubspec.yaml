@@ -11,7 +11,6 @@ dependencies:
   workmanager: ^0.5.2
   flutter_overlay_window: ^0.5.0
   speech_to_text: ^7.0.0
-  flutter_tts: ^4.2.0
   http: ^1.1.0
   intl: ^0.18.1
 dev_dependencies:
