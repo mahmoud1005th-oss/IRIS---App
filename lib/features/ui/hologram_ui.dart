@@ -60,7 +60,7 @@ class _HologramUIState extends State<HologramUI> with SingleTickerProviderStateM
                         ),
                       ],
                     ),
-                    child: const Center(child: Text('👁️', style: TextStyle(fontSize: 30))),
+                    child: ClipOval(child: Image.asset('assets/logo.png', fit: BoxFit.cover)),
                   );
                 },
               ),
