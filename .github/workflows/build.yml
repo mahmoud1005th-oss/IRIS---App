@@ -15,6 +15,13 @@ jobs:
           channel: 'stable'
       - run: flutter create . --platforms=android --project-name iris_app
       - run: sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/' android/app/build.gradle
+      - name: Set app display name to I.R.I.S
+        run: sed -i 's/android:label="iris_app"/android:label="I.R.I.S"/' android/app/src/main/AndroidManifest.xml
+      - name: Use FlutterFragmentActivity (required by local_auth biometrics)
+        run: |
+          f=$(grep -rl 'FlutterActivity()' android/app/src/main/kotlin | head -1)
+          sed -i 's/import io.flutter.embedding.android.FlutterActivity/import io.flutter.embedding.android.FlutterFragmentActivity/' "$f"
+          sed -i 's/: FlutterActivity()/: FlutterFragmentActivity()/' "$f"
       - run: flutter pub get
       - run: dart run flutter_launcher_icons
       - run: flutter build apk --debug
