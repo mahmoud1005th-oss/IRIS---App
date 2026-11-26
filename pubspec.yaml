@@ -8,10 +8,10 @@ dependencies:
     sdk: flutter
   sqflite: ^2.3.0
   path: ^1.8.3
-  workmanager: ^0.5.1
-  flutter_overlay_window: ^0.4.3
-  speech_to_text: ^6.6.0
-  flutter_tts: ^3.8.5
+  workmanager: ^0.9.0
+  flutter_overlay_window: ^0.5.0
+  speech_to_text: ^7.0.0
+  flutter_tts: ^4.2.0
   http: ^1.1.0
   intl: ^0.18.1
 dev_dependencies:
