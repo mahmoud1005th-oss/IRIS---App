@@ -37,6 +37,37 @@ class AuthService {
     await auth.signInWithOAuth(OAuthProvider.apple);
   }
 
+  Future<void> signInWithGitHub() async {
+    final auth = _auth;
+    if (auth == null) return;
+    await auth.signInWithOAuth(OAuthProvider.github);
+  }
+
+  // تسجيل بالإيميل والباسورد - بيرجع true لو نجح
+  Future<bool> signInWithPassword(String email, String password) async {
+    final auth = _auth;
+    if (auth == null) return false;
+    try {
+      final res =
+          await auth.signInWithPassword(email: email, password: password);
+      return res.session != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // حساب جديد بالإيميل والباسورد
+  Future<bool> signUpWithPassword(String email, String password) async {
+    final auth = _auth;
+    if (auth == null) return false;
+    try {
+      final res = await auth.signUp(email: email, password: password);
+      return res.user != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
   bool get isSignedIn {
     try {
       return _auth?.currentSession != null;
