@@ -1,0 +1,18 @@
+name: iris_app
+description: I.R.I.S - Infinity Retinal Intelligence System
+version: 1.0.0+1
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  sqflite: ^2.3.0
+  path: ^1.8.3
+  workmanager: ^0.5.1
+  flutter_overlay_window: ^0.4.3
+  speech_to_text: ^6.6.0
+  flutter_tts: ^3.8.5
+  http: ^1.1.0
+  intl: ^0.18.1
+flutter:
+  uses-material-design: true
