@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'hologram_ui.dart';
+import 'v34_home.dart';
 import 'dart:math';
 import 'login_page.dart'
     show
@@ -98,6 +98,7 @@ class _OnboardingUIState extends State<OnboardingUI>
   String? gender;
   String language = "ar";
   String? country;
+  bool _countryAuto = false; // تم تحديدها تلقائياً
 
   late final AnimationController _pulse = AnimationController(
     vsync: this,
@@ -114,6 +115,7 @@ class _OnboardingUIState extends State<OnboardingUI>
     }
     if (kCountries.any((c) => c.code == loc.countryCode)) {
       country = loc.countryCode;
+      _countryAuto = true;
     }
   }
 
@@ -145,7 +147,7 @@ class _OnboardingUIState extends State<OnboardingUI>
     });
     await Future.delayed(const Duration(milliseconds: 720));
     if (!mounted) return;
-    final next = HologramUI(
+    final next = IrisHome(
         gender: gender,
         language: language,
         country: country == 'OTHER' ? null : country);
@@ -285,7 +287,16 @@ class _OnboardingUIState extends State<OnboardingUI>
                   ? 'اختر دولتك  ·  Choose country'
                   : '${ctry.first.native}  ·  ${ctry.first.english}',
               onTap: () => _pick('اختر دولتك · Country', kCountries, country,
-                  (v) => setState(() => country = v))),
+                  (v) => setState(() { country = v; _countryAuto = false; }))),
+          if (_countryAuto)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Row(children: const [
+                Icon(Icons.my_location, size: 14, color: Color(0xFF9DB9CE)),
+                SizedBox(width: 6),
+                Expanded(child: Text('اتحددت تلقائياً من موقعك · تقدر تغيّرها', style: TextStyle(color: Colors.white54, fontSize: 12))),
+              ]),
+            ),
           const SizedBox(height: 16),
           _title('الجنس  ·  Gender (لتخصيص الصوت)'),
           Row(children: [
