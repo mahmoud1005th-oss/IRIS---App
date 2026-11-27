@@ -1,4 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'package:record/record.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'login_page.dart' show kIrisAccent, IrisLogo;
@@ -18,6 +24,13 @@ const String kTestReply =
 
 const String kVoiceDemoText = 'اهلا يا آيرس، عايز أعرف أخبار الذكاء الاصطناعي النهاردة.';
 
+const String kVoiceReply =
+    'وصلتني رسالتك الصوتية. فهم الصوت الحقيقي لسه مش شغال في النسخة دي، هيشتغل لما نوصل السيرفر.';
+const String kNoTranscript = 'التفريغ النصي لسه مش متاح، محتاج خدمة تفريغ صوت على السيرفر.';
+const String kThreadKey = 'iris_thread_v1';
+// للاختبار بس: بيخلي التسجيل وهمي من غير مايك
+bool kFakeRecordingForTests = false;
+
 const String kWebReply =
     'خلصت يا محمود! جمعتلك الخلاصة بشكل بسيط. (ده عرض تجريبي للشكل بس، مفيش بحث حقيقي لسه)';
 
@@ -32,9 +45,12 @@ class _Msg {
   final String text;
   final bool me;
   final int? voiceSec; // لو رسالة صوتية
+  final String? path; // ملف التسجيل على التليفون
   bool showText = false; // نص الرسالة الصوتية ظاهر تحتها (CC)
   int status; // ٠ اتبعتت ✓ · ١ وصلت ✓✓ · ٢ اتقرت ✓✓ (أزرق)
-  _Msg(this.text, this.me, {this.voiceSec, this.status = 0});
+  _Msg(this.text, this.me, {this.voiceSec, this.path, this.status = 0});
+  Map<String, dynamic> toJson() => {'t': text, 'me': me, 'v': voiceSec, 'p': path};
+  static _Msg fromJson(Map<String, dynamic> j) => _Msg(j['t'] as String? ?? '', j['me'] as bool? ?? false, voiceSec: j['v'] as int?, path: j['p'] as String?, status: 2);
 }
 
 enum IrisMode { auto, flashLite, flash, proLite }
@@ -207,6 +223,57 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
   late final AnimationController _think = AnimationController(vsync: this, duration: const Duration(milliseconds: 1500))..repeat();
   late final AnimationController _wave = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))..repeat();
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+  final _recorder = AudioRecorder();
+  AudioPlayer? _player;
+  _Msg? _playing;
+  String? _recPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadThread();
+  }
+
+  // محادثة واحدة مستمرة: بتتحفظ على التليفون وبترجع كل مرة تفتح التطبيق
+  Future<void> _loadThread() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final raw = sp.getString(kThreadKey);
+      if (raw == null || !mounted) return;
+      final list = (jsonDecode(raw) as List).map((e) => _Msg.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+      setState(() => _msgs.insertAll(0, list));
+      Future.delayed(const Duration(milliseconds: 150), () {
+        if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _saveThread() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString(kThreadKey, jsonEncode(_msgs.map((m) => m.toJson()).toList()));
+    } catch (_) {}
+  }
+
+  Future<void> _togglePlay(_Msg m) async {
+    if (m.path == null) return;
+    try {
+      _player ??= AudioPlayer();
+      if (_playing == m) {
+        await _player!.stop();
+        setState(() => _playing = null);
+        return;
+      }
+      await _player!.stop();
+      setState(() => _playing = m);
+      _player!.onPlayerComplete.first.then((_) {
+        if (mounted && _playing == m) setState(() => _playing = null);
+      });
+      await _player!.play(DeviceFileSource(m.path!));
+    } catch (_) {
+      if (mounted) setState(() => _playing = null);
+    }
+  }
 
   String get _country {
     if (widget.country != null) return widget.country!;
@@ -227,6 +294,8 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
     _wave.dispose();
     _liveTimer?.cancel();
     _recTimer?.cancel();
+    _player?.dispose();
+    _recorder.dispose();
     super.dispose();
   }
 
@@ -239,6 +308,7 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
 
   Future<void> _deliver(_Msg m, {bool web = false}) async {
     setState(() => _msgs.add(m));
+    _saveThread();
     _toBottom();
     await Future.delayed(const Duration(milliseconds: 500));
     if (!mounted) return;
@@ -254,8 +324,9 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
     if (!mounted) return;
     setState(() {
       _phase = '';
-      _msgs.add(_Msg(web ? kWebReply : kTestReply, false));
+      _msgs.add(_Msg(m.voiceSec != null ? kVoiceReply : (web ? kWebReply : kTestReply), false));
     });
+    _saveThread();
     _toBottom();
   }
 
@@ -266,7 +337,27 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
     _deliver(_Msg(t, true), web: _isWebQ(t));
   }
 
-  void _startRec() {
+  Future<void> _startRec() async {
+    String? path;
+    if (!kFakeRecordingForTests) {
+      try {
+        if (!await _recorder.hasPermission()) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('محتاج إذن المايك عشان أسجل. فعّله من إعدادات التطبيق', textDirection: TextDirection.rtl)));
+          }
+          return;
+        }
+        final dir = await getApplicationDocumentsDirectory();
+        path = '${dir.path}/iris_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        await _recorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: path);
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مقدرتش أشغل المايك', textDirection: TextDirection.rtl)));
+        }
+        return;
+      }
+    }
+    _recPath = path;
     setState(() {
       _rec = true;
       _recSec = 0;
@@ -274,11 +365,25 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
     _recTimer = Timer.periodic(const Duration(seconds: 1), (_) => setState(() => _recSec++));
   }
 
-  void _stopRec({required bool send}) {
+  Future<void> _stopRec({required bool send}) async {
     _recTimer?.cancel();
     final s = math.max(_recSec, 1);
     setState(() => _rec = false);
-    if (send) _deliver(_Msg('', true, voiceSec: s), web: true);
+    String? path = _recPath;
+    if (!kFakeRecordingForTests) {
+      try {
+        path = await _recorder.stop() ?? path;
+      } catch (_) {}
+    }
+    if (!send) {
+      if (path != null) {
+        try {
+          await File(path).delete();
+        } catch (_) {}
+      }
+      return;
+    }
+    _deliver(_Msg('', true, voiceSec: s, path: path));
   }
 
   void _toBottom() => Future.delayed(const Duration(milliseconds: 80), () {
@@ -318,8 +423,8 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
     }
   }
 
-  Widget _voiceBars(int sec, {Color? col}) => Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(Icons.play_arrow_rounded, color: col ?? Colors.white, size: 22),
+  Widget _voiceBars(int sec, {Color? col, bool playing = false, VoidCallback? onPlay}) => Row(mainAxisSize: MainAxisSize.min, children: [
+        GestureDetector(behavior: HitTestBehavior.opaque, onTap: onPlay, child: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded, color: col ?? Colors.white, size: 26)),
         for (var i = 0; i < 16; i++)
           Container(width: 3, height: 5 + 12 * (0.5 + 0.5 * math.sin(i * 1.3 + sec)).abs(), margin: const EdgeInsets.symmetric(horizontal: 1.2), decoration: BoxDecoration(color: (col ?? Colors.white).withOpacity(.75), borderRadius: BorderRadius.circular(2))),
         const SizedBox(width: 8),
@@ -364,7 +469,7 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
               padding: const EdgeInsets.fromLTRB(8, 5, 12, 4),
               decoration: BoxDecoration(color: kIrisAccent.withOpacity(.22), borderRadius: BorderRadius.circular(16), border: Border.all(color: kIrisAccent.withOpacity(.5))),
               child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
-                _voiceBars(m.voiceSec!),
+                _voiceBars(m.voiceSec!, playing: _playing == m, onPlay: () => _togglePlay(m)),
                 Ticks(m.status),
               ]),
             ),
@@ -379,7 +484,7 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
                     constraints: const BoxConstraints(maxWidth: 280),
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(color: _card, borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.white12)),
-                    child: const Text(kVoiceDemoText, style: TextStyle(color: Colors.white, fontSize: 14, height: 1.5)),
+                    child: const Text(kNoTranscript, style: TextStyle(color: Colors.white60, fontSize: 13, height: 1.5)),
                   )
                 : const SizedBox.shrink(),
           ),
@@ -599,25 +704,7 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
     );
   }
 
-  Widget _greeting() {
-    return AnimatedBuilder(
-      animation: _enter,
-      builder: (_, __) {
-        final t = Curves.easeOut.transform(((_enter.value - 0.35) / 0.5).clamp(0.0, 1.0));
-        return Opacity(
-          opacity: t,
-          child: Transform.translate(
-            offset: Offset(0, 12 * (1 - t)),
-            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Text('نورت تاني يا $_name', style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 6),
-              const Text('شات جديد جاهز. اسألني أي حاجة أو اضغط على المايك', style: TextStyle(color: Colors.white54, fontSize: 13.5)),
-            ]),
-          ),
-        );
-      },
-    );
-  }
+  Widget _greeting() => const SizedBox.expand();
 
   @override
   Widget build(BuildContext context) {
