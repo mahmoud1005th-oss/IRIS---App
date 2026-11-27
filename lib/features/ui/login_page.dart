@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'fingerprint_step.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../core/services/auth_service.dart';
@@ -50,19 +51,49 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   late final AnimationController _rainController = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1400),
-  )..repeat();
+  );
 
   // متحكم دوران اللوجو والنبض في شاشة التلفزيون
   late final AnimationController _orbitController = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 6),
-  )..repeat();
+  );
 
   // متحكم مسحة التبديل القطرية بين البانيلات (مرجع: فيديو Login|Signup Animation)
   late final AnimationController _sweepController = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 750),
   );
+
+  // الاسم المحفوظ من آخر دخول (بيتحفظ بعد التسجيل/الدخول). لو مفيش: "اهلا بيك"
+  String? _savedName;
+  bool _bgReady = false;
+  late final AnimationController _shimmer = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2600),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((p) {
+      final n = p.getString('iris_user_name');
+      if (mounted && n != null && n.trim().isNotEmpty) {
+        setState(() => _savedName = n.trim());
+      }
+    }).catchError((_) {});
+    // نبدأ الشيمر بعد ما شاشة الدخول تظهر (مش في أول فريم) عشان أول فتح يبقى خفيف
+    // أول فريم خفيف: الخلفية بتظهر بتدريج بعد أول رسمة، والحركات المستمرة بتبدأ بعدها
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _bgReady = true);
+    });
+    Future.delayed(const Duration(milliseconds: 450), () {
+      if (!mounted) return;
+      _rainController.repeat();
+      _orbitController.repeat();
+      _shimmer.repeat();
+    });
+  }
 
   bool _panelsSwapped = false; // الفورم واللوجو بدّلوا أماكنهم؟
   bool _sweepBusy = false; // مسحة التبديل شغالة؟
@@ -79,6 +110,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     _rainController.dispose();
     _orbitController.dispose();
     _sweepController.dispose();
+    _shimmer.dispose();
     super.dispose();
   }
 
@@ -805,24 +837,6 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         SizedBox(height: 10 * s),
         _tvGradButton('Login to I.R.I.S', s, _busy ? null : () => _trySignIn()),
         SizedBox(height: 8 * s),
-        Center(
-          child: GestureDetector(
-            onTap: _signInWithFace,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.fingerprint, color: kIrisAccent, size: 17 * s),
-                SizedBox(width: 6 * s),
-                Text('Log in with fingerprint',
-                    style: TextStyle(
-                        color: kIrisAccent,
-                        fontSize: 11.5 * s,
-                        fontWeight: FontWeight.w700)),
-              ],
-            ),
-          ),
-        ),
-        SizedBox(height: 8 * s),
         _tvOrDivider(s),
         SizedBox(height: 8 * s),
         _wideSocialRow(s),
@@ -953,7 +967,12 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         fit: StackFit.expand,
         children: [
           // شبكة أعصاب الشبكية في الخلفية (النص التحتاني)
-          RetinaNetwork(animation: _rainController),
+          AnimatedOpacity(
+            duration: const Duration(milliseconds: 700),
+            curve: Curves.easeOut,
+            opacity: _bgReady ? 1 : 0,
+            child: RetinaNetwork(animation: _rainController),
+          ),
           // الفورم
           Positioned.fill(
             top: headerH - 6,
@@ -1058,8 +1077,6 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                       SizedBox(height: 14 * uiScale),
                       _morphButton(
                           'Sign in', uiScale, _busy ? null : _trySignIn),
-                      SizedBox(height: 10 * uiScale),
-                      _faceScanButton(uiScale, compact: true),
                       SizedBox(height: 14 * uiScale),
                       Center(
                         child: Text('OR CONTINUE WITH',
@@ -1115,7 +1132,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                     bottom: false,
                     child: Padding(
                       padding: EdgeInsets.only(
-                          top: 50 * uiScale, bottom: 30 * uiScale),
+                          top: 34 * uiScale, bottom: 20 * uiScale),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.start,
                         children: [
@@ -1124,7 +1141,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                             builder: (context, _) {
                               final pulse = 0.5 +
                                   0.5 * sin(_orbitController.value * 2 * pi);
-                              final d = 104 * uiScale;
+                              final d = 140 * uiScale;
                               return DecoratedBox(
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
@@ -1142,18 +1159,24 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                               );
                             },
                           ),
-                          SizedBox(height: 34 * uiScale),
-                          Text('Welcome back',
+                          SizedBox(height: 22 * uiScale),
+                          _ShimmerText(
+                              animation: _shimmer,
+                              text: _savedName == null
+                                  ? 'اهلا بيك'
+                                  : 'اهلا يا $_savedName',
                               style: TextStyle(
                                   color: Colors.white,
-                                  fontSize: 28 * uiScale,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: -0.4)),
-                          SizedBox(height: 4 * uiScale),
-                          Text('Sign in to your I.R.I.S assistant',
+                                  fontSize: 30 * uiScale,
+                                  fontWeight: FontWeight.w800)),
+                          SizedBox(height: 6 * uiScale),
+                          _ShimmerText(
+                              animation: _shimmer,
+                              phase: 0.18,
+                              text: 'سجّل دخولك وكمّل مع آيرس',
                               style: TextStyle(
-                                  color: Colors.white60,
-                                  fontSize: 13.5 * uiScale)),
+                                  color: Colors.white70,
+                                  fontSize: 14 * uiScale)),
                         ],
                       ),
                     ),
@@ -1260,16 +1283,6 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             uiScale: uiScale,
             onPressed: _busy ? null : () => _trySignIn(),
             autofocus: true),
-        SizedBox(height: 6 * uiScale),
-        Center(
-          child: TextButton.icon(
-            onPressed: _signInWithFace,
-            icon:
-                Icon(Icons.fingerprint, color: kIrisAccent, size: 18 * uiScale),
-            label: Text('Fingerprint',
-                style: TextStyle(color: kIrisAccent, fontSize: 12 * uiScale)),
-          ),
-        ),
         SizedBox(height: 4 * uiScale),
         _wideSocialRow(uiScale * 0.95, showLabels: false),
         SizedBox(height: 16 * uiScale),
@@ -2072,6 +2085,13 @@ class RetinaNervePainter extends CustomPainter {
 
   static final Map<String, List<List<Offset>>> _cache = {};
 
+  // تجهيز مسبق: بنحسب فروع الأعصاب أثناء الإنترو عشان شاشة الدخول ما تحسبهاش وقت الفتح
+  static void prewarm() {
+    const RetinaNervePainter()._branches;
+    const RetinaNervePainter(origin: Offset(0.5, 0.26), spread: pi / 2)
+        ._branches;
+  }
+
   List<List<Offset>> get _branches {
     final key = '${origin.dx}_${origin.dy}_$spread';
     return _cache.putIfAbsent(key, () => _build(origin, spread));
@@ -2122,9 +2142,8 @@ class RetinaNervePainter extends CustomPainter {
       final glow = Paint()
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
-        ..strokeWidth = 4
-        ..color = kIrisAccent.withOpacity(0.18)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+        ..strokeWidth = 5
+        ..color = kIrisAccent.withOpacity(0.10);
       final line = Paint()
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
@@ -2473,4 +2492,48 @@ class _CurtainEdgePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _CurtainEdgePainter old) => old.lift != lift;
+}
+
+
+// نص بيعدي عليه شعاع لمعان (شيمر) عشان الشاشة تبقى حية
+class _ShimmerText extends StatelessWidget {
+  final Animation<double> animation;
+  final String text;
+  final TextStyle style;
+  final double phase;
+  const _ShimmerText(
+      {required this.animation,
+      required this.text,
+      required this.style,
+      this.phase = 0});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, _) {
+        final t = ((animation.value + phase) % 1.0) * 2.6 - 0.8;
+        return ShaderMask(
+          blendMode: BlendMode.srcIn,
+          shaderCallback: (r) => LinearGradient(
+            begin: Alignment(-1 + t, 0),
+            end: Alignment(-0.2 + t, 0),
+            colors: [
+              style.color ?? Colors.white,
+              const Color(0xFF9DB9CE),
+              Colors.white,
+              const Color(0xFF9DB9CE),
+              style.color ?? Colors.white,
+            ],
+            stops: const [0.0, 0.3, 0.5, 0.7, 1.0],
+            tileMode: TileMode.clamp,
+          ).createShader(r),
+          child: Text(text,
+              textDirection: TextDirection.rtl,
+              textAlign: TextAlign.center,
+              style: style.copyWith(color: Colors.white)),
+        );
+      },
+    );
+  }
 }
