@@ -180,7 +180,7 @@ class _FingerprintStepPageState extends State<FingerprintStepPage>
                       fontSize: 21 * k,
                       fontWeight: FontWeight.w800,
                       shadows: const [Shadow(color: kOk, blurRadius: 16)]))
-              : Text('المس البصمة عشان تسجّلها',
+              : Text('المس البصمة عشان تضيفها · اختياري',
                   key: const ValueKey('hint'),
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.white60, fontSize: 14.5 * k)),
@@ -210,10 +210,10 @@ class _FingerprintStepPageState extends State<FingerprintStepPage>
                     fontWeight: FontWeight.w800)),
           ),
         ),
-        if (_canSkip && !_done)
+        if (!_done)
           TextButton(
             onPressed: _enter,
-            child: Text('تخطي · Skip',
+            child: Text('مش دلوقتي · تخطي',
                 style: TextStyle(color: kIrisAccent, fontSize: 13.5 * k)),
           ),
       ],
@@ -228,7 +228,7 @@ class _FingerprintStepPageState extends State<FingerprintStepPage>
         textDirection: TextDirection.rtl,
         child: LayoutBuilder(builder: (context, c) {
           final wide = c.maxWidth >= 700;
-          const title = 'سجّل بصمة صباعك للمزيد من الخصوصية والأمان';
+          const title = 'ضيف بصمتك عشان تحمي خصوصيتك';
           if (wide) {
             final k = (c.maxWidth / 1000).clamp(1.0, 1.6).toDouble();
             return Stack(fit: StackFit.expand, children: [
