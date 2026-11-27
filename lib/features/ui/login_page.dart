@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -56,6 +57,16 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     duration: const Duration(seconds: 6),
   )..repeat();
 
+  // متحكم مسحة التبديل القطرية بين البانيلات (مرجع: فيديو Login|Signup Animation)
+  late final AnimationController _sweepController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 750),
+  );
+
+  bool _panelsSwapped = false; // الفورم واللوجو بدّلوا أماكنهم؟
+  bool _sweepBusy = false; // مسحة التبديل شغالة؟
+  bool _scanDone = false; // المسح البيومتري نجح (الميش يخضر وعلامة الصح)
+
   @override
   void dispose() {
     _email.dispose();
@@ -66,6 +77,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     _scanController.dispose();
     _rainController.dispose();
     _orbitController.dispose();
+    _sweepController.dispose();
     super.dispose();
   }
 
@@ -126,27 +138,48 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     }
   }
 
+  // دخول بالبيومتركس: بيستخدم التحقق البيومتري القوي المسجل على الجهاز
+  // (بصمة و/أو وش حسب ما الجهاز بيدعم - أندرويد هو اللي بيحدد شكل البرومبت)
   Future<void> _signInWithFace() async {
     setState(() {
       _scanning = true;
+      _scanDone = false;
       _error = null;
     });
+    bool ok = false;
     try {
       final canCheck = await _biometric.canCheckBiometrics;
       if (!canCheck) {
-        _goNext(); // الجهاز مش بيدعم بصمة - نكمل عادي
-        return;
+        ok = true; // الجهاز مش بيدعم بيومتركس - نكمل في الوضع التجريبي
+      } else {
+        ok = await _biometric.authenticate(
+          localizedReason: 'Scan to sign in to I.R.I.S',
+          options: const AuthenticationOptions(biometricOnly: true),
+        );
       }
-      final ok = await _biometric.authenticate(
-        localizedReason: 'Scan to sign in to I.R.I.S',
-        options: const AuthenticationOptions(biometricOnly: true),
-      );
-      if (ok) _goNext();
     } catch (_) {
-      // المستخدم لغى أو حصل خطأ - نقفل شاشة المسح بس
-    } finally {
-      if (mounted) setState(() => _scanning = false);
+      ok = false; // المستخدم لغى أو حصل خطأ
     }
+    if (!mounted) return;
+    if (ok) {
+      // الميش يخضر، علامة الصح تظهر، وبعدين "Welcome back" ونكمل
+      setState(() => _scanDone = true);
+      await Future.delayed(const Duration(milliseconds: 1600));
+      if (!mounted) return;
+      setState(() => _scanning = false);
+      _goNext();
+    } else {
+      setState(() => _scanning = false);
+    }
+  }
+
+  // اسم المستخدم من إيميل الحساب (أو الإيميل المكتوب) لشاشة الترحيب بعد المسح
+  String? _displayName() {
+    final email = _auth.currentEmail ??
+        (_email.text.trim().isNotEmpty ? _email.text.trim() : null);
+    if (email == null || !email.contains('@')) return null;
+    final name = email.split('@').first;
+    return name.isEmpty ? null : name;
   }
 
   Future<void> _signInSocial(Future<void> Function() startOAuth) async {
@@ -156,6 +189,30 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       return;
     }
     await startOAuth();
+  }
+
+  // مسحة التبديل القطرية: بانيل أزرق بحافة مائلة بيعدي على الشاشة (زي الفيديو
+  // بتاع محمود، بس أزرق بدل برتقالي)، وفي نصها - لما الشاشة متغطية - البانيلات
+  // بتبدل أماكنها. بعد ما تخلص بنكمل الأكشن المطلوب (دخول / تبديل الفورم)
+  Future<void> _sweepSwap(
+      {bool alsoToggleMode = false, Future<void> Function()? after}) async {
+    if (_sweepBusy) return;
+    _sweepBusy = true;
+    unawaited(_sweepController.forward(from: 0));
+    await Future.delayed(const Duration(milliseconds: 380));
+    if (mounted) {
+      setState(() {
+        _panelsSwapped = !_panelsSwapped;
+        if (alsoToggleMode) {
+          _showRegister = !_showRegister;
+          _error = null;
+        }
+      });
+    }
+    await Future.delayed(const Duration(milliseconds: 420));
+    if (mounted) _sweepController.reset();
+    _sweepBusy = false;
+    if (after != null && mounted) await after();
   }
 
   @override
@@ -206,7 +263,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             AnimatedPositioned(
               duration: const Duration(milliseconds: 700),
               curve: Curves.easeInOut,
-              left: _showRegister ? 0 : half,
+              left: (_showRegister != _panelsSwapped) ? 0 : half,
               top: 0,
               width: half,
               height: constraints.maxHeight,
@@ -216,7 +273,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             AnimatedPositioned(
               duration: const Duration(milliseconds: 700),
               curve: Curves.easeInOut,
-              left: _showRegister ? half : 0,
+              left: (_showRegister != _panelsSwapped) ? half : 0,
               top: 0,
               width: half,
               height: constraints.maxHeight,
@@ -255,6 +312,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                 ),
               ),
             ),
+            // مسحة التبديل القطرية
+            _sweepOverlay(),
           ],
         );
       },
@@ -337,10 +396,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                   width: 170 * uiScale / 1.2,
                   height: 46 * uiScale / 1.2,
                   child: OutlinedButton(
-                    onPressed: () => setState(() {
-                      _showRegister = !_showRegister;
-                      _error = null;
-                    }),
+                    onPressed: () => _sweepSwap(alsoToggleMode: true),
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(
                           color: kIrisAccent, width: 1.6),
@@ -443,7 +499,9 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           _glowButton(
               label: 'Login',
               uiScale: uiScale / 1.2,
-              onPressed: _busy ? null : _signInWithEmail,
+              onPressed: _busy
+                  ? null
+                  : () => _sweepSwap(after: _signInWithEmail),
               autofocus: true),
           const SizedBox(height: 8),
           Center(
@@ -466,10 +524,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                   style:
                       TextStyle(color: Colors.white54, fontSize: 12)),
               GestureDetector(
-                onTap: () => setState(() {
-                  _showRegister = true;
-                  _error = null;
-                }),
+                onTap: () => _sweepSwap(alsoToggleMode: true),
                 child: const Text('Create an account',
                     style: TextStyle(
                         color: kIrisAccent,
@@ -540,7 +595,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           _glowButton(
               label: 'Create My Account',
               uiScale: uiScale / 1.2,
-              onPressed: _busy ? null : _register),
+              onPressed:
+                  _busy ? null : () => _sweepSwap(after: _register)),
           const SizedBox(height: 12),
           _socialRow(uiScale / 1.2),
           const SizedBox(height: 12),
@@ -551,10 +607,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                   style:
                       TextStyle(color: Colors.white54, fontSize: 12)),
               GestureDetector(
-                onTap: () => setState(() {
-                  _showRegister = false;
-                  _error = null;
-                }),
+                onTap: () => _sweepSwap(alsoToggleMode: true),
                 child: const Text('Login instead',
                     style: TextStyle(
                         color: kIrisAccent,
@@ -596,116 +649,137 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             ),
           ),
         ),
-        // المحتوى: فورم شمال، لوجو/هولوغرام يمين
-        Row(
-          children: [
-            Expanded(
-              flex: 5,
-              child: Center(
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.all(32 * uiScale),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: 380 * uiScale),
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 600),
-                      transitionBuilder: (child, anim) {
-                        final curved = CurvedAnimation(
-                            parent: anim, curve: Curves.easeInOut);
-                        return AnimatedBuilder(
-                          animation: curved,
-                          builder: (_, c) => ImageFiltered(
-                            imageFilter: ui.ImageFilter.blur(
-                              sigmaX: (1 - curved.value) * 8,
-                              sigmaY: (1 - curved.value) * 8,
-                            ),
-                            child:
-                                Opacity(opacity: curved.value, child: c),
-                          ),
-                          child: SlideTransition(
-                            position: Tween<Offset>(
-                              begin:
-                                  Offset(_showRegister ? 0.12 : -0.12, 0),
-                              end: Offset.zero,
-                            ).animate(curved),
-                            child: child,
-                          ),
-                        );
-                      },
-                      child: _showRegister
-                          ? _registerForm(uiScale,
-                              key: const ValueKey('reg'))
-                          : _loginForm(uiScale,
-                              key: const ValueKey('login')),
+        // المحتوى: فورم ولوجو بيبدلوا أماكنهم (زي التلفزيون) بالمسحة القطرية
+        LayoutBuilder(
+          builder: (context, lc) {
+            final formOnRight = _showRegister != _panelsSwapped;
+            final formW = lc.maxWidth * 5 / 9;
+            final logoW = lc.maxWidth - formW;
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 700),
+                  curve: Curves.easeInOut,
+                  left: formOnRight ? lc.maxWidth - formW : 0,
+                  top: 0,
+                  width: formW,
+                  height: lc.maxHeight,
+                  child: Center(
+                    child: SingleChildScrollView(
+                      padding: EdgeInsets.all(32 * uiScale),
+                      child: ConstrainedBox(
+                        constraints:
+                            BoxConstraints(maxWidth: 380 * uiScale),
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 600),
+                          transitionBuilder: (child, anim) {
+                            final curved = CurvedAnimation(
+                                parent: anim, curve: Curves.easeInOut);
+                            return AnimatedBuilder(
+                              animation: curved,
+                              builder: (_, c) => ImageFiltered(
+                                imageFilter: ui.ImageFilter.blur(
+                                  sigmaX: (1 - curved.value) * 8,
+                                  sigmaY: (1 - curved.value) * 8,
+                                ),
+                                child:
+                                    Opacity(opacity: curved.value, child: c),
+                              ),
+                              child: SlideTransition(
+                                position: Tween<Offset>(
+                                  begin:
+                                      Offset(_showRegister ? 0.12 : -0.12, 0),
+                                  end: Offset.zero,
+                                ).animate(curved),
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: _showRegister
+                              ? _registerForm(uiScale,
+                                  key: const ValueKey('reg'))
+                              : _loginForm(uiScale,
+                                  key: const ValueKey('login')),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
-            // اللوجو والهولوغرام بدل الرسمة
-            Expanded(
-              flex: 4,
-              child: Center(
-                child: AnimatedBuilder(
-                  animation: _rainController,
-                  builder: (context, _) {
-                    final pulse =
-                        0.5 + 0.5 * sin(_rainController.value * 2 * pi);
-                    return Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 220 * uiScale,
-                          height: 220 * uiScale,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: kIrisAccent
-                                    .withOpacity(0.25 + 0.2 * pulse),
-                                blurRadius: 80,
-                                spreadRadius: 10,
+                // اللوجو والهولوغرام بدل الرسمة
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 700),
+                  curve: Curves.easeInOut,
+                  left: formOnRight ? 0 : formW,
+                  top: 0,
+                  width: logoW,
+                  height: lc.maxHeight,
+                  child: Center(
+                    child: AnimatedBuilder(
+                      animation: _rainController,
+                      builder: (context, _) {
+                        final pulse =
+                            0.5 + 0.5 * sin(_rainController.value * 2 * pi);
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 220 * uiScale,
+                              height: 220 * uiScale,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: kIrisAccent
+                                        .withOpacity(0.25 + 0.2 * pulse),
+                                    blurRadius: 80,
+                                    spreadRadius: 10,
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                          child: ClipOval(
-                            child: Image.asset('assets/logo.png',
-                                fit: BoxFit.cover),
-                          ),
-                        ),
-                        SizedBox(height: 24 * uiScale),
-                        Text(
-                          'I.R.I.S',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 26 * uiScale,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 8 * uiScale,
-                            shadows: [
-                              Shadow(
-                                color: kIrisAccent.withOpacity(0.8),
-                                blurRadius: 20,
+                              child: ClipOval(
+                                child: Image.asset('assets/logo.png',
+                                    fit: BoxFit.cover),
                               ),
-                            ],
-                          ),
-                        ),
-                        SizedBox(height: 8 * uiScale),
-                        Text(
-                          'Infinity Retinal Intelligence System',
-                          style: TextStyle(
-                            color: Colors.white54,
-                            fontSize: 12 * uiScale,
-                            letterSpacing: 2.5,
-                            fontWeight: FontWeight.w300,
-                          ),
-                        ),
-                      ],
-                    );
-                  },
+                            ),
+                            SizedBox(height: 24 * uiScale),
+                            Text(
+                              'I.R.I.S',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 26 * uiScale,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 8 * uiScale,
+                                shadows: [
+                                  Shadow(
+                                    color: kIrisAccent.withOpacity(0.8),
+                                    blurRadius: 20,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            SizedBox(height: 8 * uiScale),
+                            Text(
+                              'Infinity Retinal Intelligence System',
+                              style: TextStyle(
+                                color: Colors.white54,
+                                fontSize: 12 * uiScale,
+                                letterSpacing: 2.5,
+                                fontWeight: FontWeight.w300,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          ],
+              ],
+            );
+          },
         ),
+        // مسحة التبديل القطرية
+        _sweepOverlay(),
       ],
     );
   }
@@ -875,7 +949,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         _glowButton(
             label: 'Sign In',
             uiScale: uiScale,
-            onPressed: _busy ? null : _signInWithEmail,
+            onPressed:
+                _busy ? null : () => _sweepSwap(after: _signInWithEmail),
             autofocus: true),
         SizedBox(height: 12 * uiScale),
         Center(
@@ -898,10 +973,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                 style: TextStyle(
                     color: Colors.white54, fontSize: 13 * uiScale)),
             GestureDetector(
-              onTap: () => setState(() {
-                _showRegister = true;
-                _error = null;
-              }),
+              onTap: () => _sweepSwap(alsoToggleMode: true),
               child: Text('Create',
                   style: TextStyle(
                       color: kIrisAccent,
@@ -956,7 +1028,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         _glowButton(
             label: 'Create',
             uiScale: uiScale,
-            onPressed: _busy ? null : _register),
+            onPressed: _busy ? null : () => _sweepSwap(after: _register)),
         SizedBox(height: 16 * uiScale),
         _socialRow(uiScale),
         SizedBox(height: 20 * uiScale),
@@ -967,10 +1039,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                 style: TextStyle(
                     color: Colors.white54, fontSize: 13 * uiScale)),
             GestureDetector(
-              onTap: () => setState(() {
-                _showRegister = false;
-                _error = null;
-              }),
+              onTap: () => _sweepSwap(alsoToggleMode: true),
               child: Text('Sign In',
                   style: TextStyle(
                       color: kIrisAccent,
@@ -1223,44 +1292,110 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     );
   }
 
-  // طبقة المسح بالوجه - مربع متوهج وخط بينزل ويطلع
+  // مسحة التبديل القطرية: بانيل أزرق بحافة مائلة بيعدي على الشاشة كلها
+  // (بلور وراه) وفي نصها - لما بيغطي كل حاجة - البانيلات بتبدل أماكنها
+  Widget _sweepOverlay() {
+    return AnimatedBuilder(
+      animation: _sweepController,
+      builder: (context, _) {
+        final p = _sweepController.value;
+        if (p <= 0 || p >= 1) return const SizedBox.shrink();
+        return LayoutBuilder(
+          builder: (context, c) {
+            final w = c.maxWidth;
+            final eased = Curves.easeInOut.transform(p);
+            final x = -w * 1.25 + eased * w * 2.5;
+            return Stack(
+              children: [
+                Positioned(
+                  left: x,
+                  top: 0,
+                  bottom: 0,
+                  width: w * 1.25,
+                  child: ClipPath(
+                    clipper: const _DiagonalEdgeClipper(),
+                    child: BackdropFilter(
+                      filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              kIrisAccentDeep.withOpacity(0.96),
+                              const Color(0xFF14202E).withOpacity(0.96),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // طبقة المسح البيومتري: ميش على شكل وجه + خط مسح شبكية، وعند النجاح
+  // الميش يخضر وعلامة صح تظهر وترحيب باسم المستخدم
   Widget _buildScanningOverlay(double uiScale) {
+    final name = _displayName();
     return Container(
-      color: Colors.black.withOpacity(0.92),
+      color: Colors.black.withOpacity(0.94),
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
-              width: 220 * uiScale,
-              height: 220 * uiScale,
+              width: 240 * uiScale,
+              height: 240 * uiScale,
               child: AnimatedBuilder(
                 animation: _scanController,
                 builder: (context, _) {
                   return CustomPaint(
-                    painter:
-                        FaceScanPainter(progress: _scanController.value),
+                    painter: FaceScanPainter(
+                      progress: _scanController.value,
+                      success: _scanDone ? 1.0 : 0.0,
+                    ),
                   );
                 },
               ),
             ),
             SizedBox(height: 24 * uiScale),
-            Text('Scanning...',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18 * uiScale,
-                    fontWeight: FontWeight.w600)),
-            SizedBox(height: 8 * uiScale),
-            Text('Simulated scan - use your device biometrics',
-                style: TextStyle(
-                    color: Colors.white38, fontSize: 12 * uiScale)),
-            SizedBox(height: 24 * uiScale),
-            TextButton(
-              onPressed: () => setState(() => _scanning = false),
-              child: Text('Use password instead',
+            if (!_scanDone) ...[
+              Text('Scanning...',
                   style: TextStyle(
-                      color: kIrisAccent, fontSize: 14 * uiScale)),
-            ),
+                      color: Colors.white,
+                      fontSize: 18 * uiScale,
+                      fontWeight: FontWeight.w600)),
+              SizedBox(height: 8 * uiScale),
+              Text('Verify with your device biometrics (face or fingerprint)',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: Colors.white38, fontSize: 12 * uiScale)),
+              SizedBox(height: 24 * uiScale),
+              TextButton(
+                onPressed: () => setState(() => _scanning = false),
+                child: Text('Use password instead',
+                    style: TextStyle(
+                        color: kIrisAccent, fontSize: 14 * uiScale)),
+              ),
+            ] else ...[
+              Text(
+                name != null ? 'Welcome back, $name!' : 'Welcome back!',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    color: const Color(0xFF2EE66B),
+                    fontSize: 20 * uiScale,
+                    fontWeight: FontWeight.w700,
+                    shadows: const [
+                      Shadow(color: Color(0xFF2EE66B), blurRadius: 18),
+                    ]),
+              ),
+            ],
           ],
         ),
       ),
@@ -1335,56 +1470,96 @@ class _StarsPainter extends CustomPainter {
 }
 
 class FaceScanPainter extends CustomPainter {
-  final double progress;
-  FaceScanPainter({required this.progress});
+  final double progress; // حركة خط المسح
+  final double success; // 0 بيمسح (أزرق) / 1 اتأكد (أخضر)
+  FaceScanPainter({required this.progress, this.success = 0});
 
   static const Color accent = kIrisAccent;
+  static const Color ok = Color(0xFF2EE66B);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final rect = Rect.fromLTWH(0, 0, size.width, size.height);
-    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(28));
+    final col = Color.lerp(accent, ok, success)!;
+    final c = size.center(Offset.zero);
+    final rx = size.width * 0.30;
+    final ry = size.height * 0.38;
 
     // الإطار المتوهج
+    final rect = Rect.fromLTWH(0, 0, size.width, size.height);
     canvas.drawRRect(
-      rrect,
+      RRect.fromRectAndRadius(rect, const Radius.circular(28)),
       Paint()
-        ..color = accent.withOpacity(0.8)
+        ..color = col.withOpacity(0.8)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.5,
     );
 
-    // خط المسح بينزل ويطلع
-    final y =
-        size.height * (progress < 0.5 ? progress * 2 : 2 - progress * 2);
-    final scanPaint = Paint()
-      ..color = accent
-      ..strokeWidth = 3
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
-    canvas.drawLine(Offset(8, y), Offset(size.width - 8, y), scanPaint);
-
-    // شكل وجه مبسط في النص
-    final facePaint = Paint()
-      ..color = accent.withOpacity(0.5)
+    final meshPaint = Paint()
+      ..color = col.withOpacity(0.55)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-    final c = size.center(Offset.zero);
-    canvas.drawCircle(c, size.width * 0.22, facePaint);
-    canvas.drawCircle(
-        c + Offset(-size.width * 0.08, -size.height * 0.04),
-        3,
-        facePaint..style = PaintingStyle.fill);
-    canvas.drawCircle(c + Offset(size.width * 0.08, -size.height * 0.04),
-        3, facePaint);
-    canvas.drawArc(
-      Rect.fromCircle(
-          center: c + Offset(0, size.height * 0.05),
-          radius: size.width * 0.1),
-      0.3,
-      2.5,
-      false,
-      facePaint..style = PaintingStyle.stroke,
-    );
+      ..strokeWidth = 1;
+    final dotPaint = Paint()..color = col.withOpacity(0.85);
+
+    // خريطة الميش على شكل الوجه: خطوط عرض مقوسة
+    final List<Offset> nodes = [];
+    for (int i = -3; i <= 3; i++) {
+      final t = i / 3.2;
+      final yy = c.dy + t * ry;
+      final half = rx * sqrt(max(0.0, 1 - t * t));
+      final path = Path()
+        ..moveTo(c.dx - half, yy)
+        ..quadraticBezierTo(c.dx, yy + 8, c.dx + half, yy);
+      canvas.drawPath(path, meshPaint);
+      for (int j = -2; j <= 2; j++) {
+        nodes.add(Offset(c.dx + j * half / 2.2, yy + 4));
+      }
+    }
+    // خطوط طول مقوسة
+    for (int j = -3; j <= 3; j++) {
+      final t = j / 3.2;
+      final xTop = c.dx + t * rx * 0.45;
+      final path = Path()
+        ..moveTo(xTop, c.dy - ry)
+        ..quadraticBezierTo(c.dx + t * rx * 1.15, c.dy, xTop, c.dy + ry);
+      canvas.drawPath(path, meshPaint);
+    }
+    // نقط الميش
+    for (final p in nodes) {
+      canvas.drawCircle(p, 1.6, dotPaint);
+    }
+    // العينين (منطقة مسح الشبكية)
+    canvas.drawCircle(c + Offset(-rx * 0.38, -ry * 0.18), 4, dotPaint);
+    canvas.drawCircle(c + Offset(rx * 0.38, -ry * 0.18), 4, dotPaint);
+
+    if (success < 0.5) {
+      // خط المسح بينزل ويطلع
+      final y =
+          size.height * (progress < 0.5 ? progress * 2 : 2 - progress * 2);
+      canvas.drawLine(
+        Offset(8, y),
+        Offset(size.width - 8, y),
+        Paint()
+          ..color = col
+          ..strokeWidth = 3
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
+      );
+    } else {
+      // علامة الصح الخضرا المتوهجة في النص
+      final check = Path()
+        ..moveTo(c.dx - 26, c.dy)
+        ..lineTo(c.dx - 6, c.dy + 20)
+        ..lineTo(c.dx + 30, c.dy - 22);
+      canvas.drawPath(
+        check,
+        Paint()
+          ..color = ok
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 6
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+      );
+    }
   }
 
   @override
@@ -1440,4 +1615,23 @@ class _TwinkleStarsPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _TwinkleStarsPainter oldDelegate) => true;
+}
+
+// حافة مائلة لبانيل مسحة التبديل (الدياجونال بتاع فيديو المرجع)
+class _DiagonalEdgeClipper extends CustomClipper<Path> {
+  const _DiagonalEdgeClipper();
+
+  @override
+  Path getClip(Size size) {
+    final slant = size.width * 0.18;
+    return Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width - slant, 0)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+  }
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }
