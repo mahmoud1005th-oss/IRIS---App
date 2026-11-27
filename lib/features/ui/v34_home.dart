@@ -9,7 +9,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'login_page.dart' show kIrisAccent, IrisLogo;
+import '../../core/services/stt_service.dart';
 import 'menu_preview.dart' show MenuList;
+import 'menu_v5.dart' show MenuV5, v5PageFor;
 import 'batch3_preview.dart' show reelCard;
 import 'batch3b_preview.dart' show PayFrame;
 import 'flows_preview.dart' show PhoneWatchPreview;
@@ -51,6 +53,9 @@ class _Msg {
   final int? voiceSec; // لو رسالة صوتية
   final String? path; // ملف التسجيل على التليفون
   bool showText = false; // نص الرسالة الصوتية ظاهر تحتها (CC)
+  String? transcript; // التفريغ النصي من السيرفر (لسه مش متوصل)
+  bool transcribing = false;
+  bool? transcriptOk; // رأي المستخدم: التفريغ صح ولا لأ
   int status; // ٠ اتبعتت ✓ · ١ وصلت ✓✓ · ٢ اتقرت ✓✓ (أزرق)
   _Msg(this.text, this.me, {this.voiceSec, this.path, this.status = 0});
   Map<String, dynamic> toJson() =>
@@ -275,8 +280,8 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
       vsync: this, duration: const Duration(milliseconds: 1200));
   late final AnimationController _menuC = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 420),
-      reverseDuration: const Duration(milliseconds: 280));
+      duration: const Duration(milliseconds: 220),
+      reverseDuration: const Duration(milliseconds: 160));
   late final AnimationController _spin =
       AnimationController(vsync: this, duration: const Duration(seconds: 28))
         ..repeat();
@@ -297,13 +302,14 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
   _Msg? _speaking;
   String _gender = 'male';
   bool _ttsReady = false;
+  Future<void>? _ttsInit;
   String? _recPath;
 
   @override
   void initState() {
     super.initState();
     _loadThread();
-    _initTts();
+    _ttsInit = _initTts();
   }
 
   // صوت آيرس: على التليفون نفسه (من غير إنترنت ومن غير حجم زيادة). الذكر/الأنثى حسب اختيار الدخول
@@ -315,6 +321,9 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
       }
       _gender = widget.gender ?? sp.getString('iris_gender') ?? 'male';
       await _tts.awaitSpeakCompletion(true);
+      _tts.setErrorHandler((_) {
+        if (mounted && _speaking != null) setState(() => _speaking = null);
+      });
       var ok = false;
       for (final l in ['ar-EG', 'ar-SA', 'ar']) {
         final r = await _tts.isLanguageAvailable(l);
@@ -348,6 +357,24 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
     } catch (_) {}
   }
 
+  final SttService _stt = makeSttService();
+  Future<void> _transcribe(_Msg m) async {
+    if (m.transcript != null || m.transcribing || m.path == null) return;
+    setState(() => m.transcribing = true);
+    final r = await _stt.transcribe(m.path!);
+    if (!mounted) return;
+    setState(() {
+      m.transcribing = false;
+      if (r.ok) m.transcript = r.text; // لو مش متوصل بيفضل kNoTranscript
+    });
+  }
+
+  void _snack(String s) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(s, textDirection: TextDirection.rtl)));
+  }
+
   Future<void> _speak(_Msg m) async {
     try {
       if (_speaking == m) {
@@ -356,8 +383,26 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
         return;
       }
       await _tts.stop();
+      await _ttsInit; // استنى التجهيز لو لسه ما خلصش
+      if (!_ttsReady) {
+        // ممكن اللغة اتحملت بعد التجهيز: جرّب تاني قبل ما نقول إنه مفيش صوت عربي
+        for (final l in ['ar-EG', 'ar-SA', 'ar']) {
+          final r = await _tts.isLanguageAvailable(l);
+          if (r == true || r == 1) {
+            await _tts.setLanguage(l);
+            _ttsReady = true;
+            break;
+          }
+        }
+      }
+      if (!_ttsReady) {
+        _snack('مفيش صوت عربي على موبايلك. نزّله من إعدادات الموبايل: الكلام (Text-to-speech) ثم Google وحمّل العربي');
+        return;
+      }
       setState(() => _speaking = m);
-      await _tts.speak(m.text);
+      await _tts.setVolume(1.0);
+      final r = await _tts.speak(m.text);
+      if (r != 1 && r != true) _snack('الصوت مش شغال دلوقتي. اتأكد إن صوت الوسائط مش مكتوم');
       if (mounted && _speaking == m) setState(() => _speaking = null);
     } catch (_) {
       if (mounted) {
@@ -574,7 +619,7 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
 
   void _onMenu(String t) {
     Navigator.pop(context);
-    Widget? page;
+    Widget? page = v5PageFor(t);
     if (t == 'ريلز فيديو') page = const ReelsPage();
     if (t.contains('Promo')) page = PromoPage(country: _country);
     if (t == 'تركيز الطاقة') page = const WatchFlowPage();
@@ -680,7 +725,10 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
             children: [
               Row(mainAxisSize: MainAxisSize.min, children: [
                 GestureDetector(
-                  onTap: () => setState(() => m.showText = !m.showText),
+                  onTap: () {
+                    setState(() => m.showText = !m.showText);
+                    if (m.showText) _transcribe(m);
+                  },
                   child: Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
@@ -732,11 +780,54 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
                             color: _card,
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(color: Colors.white12)),
-                        child: const Text(kNoTranscript,
-                            style: TextStyle(
-                                color: Colors.white60,
-                                fontSize: 13,
-                                height: 1.5)),
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                  m.transcribing
+                                      ? 'بحوّل الكلام لنص...'
+                                      : (m.transcript ?? kNoTranscript),
+                                  style: TextStyle(
+                                      color: m.transcript != null
+                                          ? Colors.white
+                                          : Colors.white60,
+                                      fontSize: 13,
+                                      height: 1.5)),
+                              if (m.transcript != null) ...[
+                                const SizedBox(height: 8),
+                                Row(mainAxisSize: MainAxisSize.min, children: [
+                                  const Text('التفريغ صح؟',
+                                      style: TextStyle(
+                                          color: Colors.white38, fontSize: 11)),
+                                  const SizedBox(width: 8),
+                                  for (final o in const [
+                                    [true, 'صح'],
+                                    [false, 'فيه غلط']
+                                  ])
+                                    GestureDetector(
+                                      onTap: () => setState(
+                                          () => m.transcriptOk = o[0] as bool),
+                                      child: Container(
+                                        margin: const EdgeInsets.only(left: 6),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10, vertical: 3),
+                                        decoration: BoxDecoration(
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                            border: Border.all(
+                                                color: m.transcriptOk == o[0]
+                                                    ? kIrisAccent
+                                                    : Colors.white24)),
+                                        child: Text(o[1] as String,
+                                            style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 11.5)),
+                                      ),
+                                    ),
+                                ]),
+                              ],
+                            ]),
                       )
                     : const SizedBox.shrink(),
               ),
@@ -1125,11 +1216,12 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
       child: Scaffold(
         key: _scaffoldKey,
         backgroundColor: _bg,
+        drawerEdgeDragWidth: 56,
         drawer: Drawer(
           backgroundColor: const Color(0xFF0B1118),
           width: 320,
           child: SafeArea(
-              child: SingleChildScrollView(child: MenuList(onSelect: _onMenu))),
+              child: SingleChildScrollView(child: MenuV5(onSelect: _onMenu))),
         ),
         body: SafeArea(
           child: Stack(children: [
