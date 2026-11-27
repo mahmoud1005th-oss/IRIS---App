@@ -17,13 +17,20 @@ jobs:
       - run: sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/' android/app/build.gradle
       - name: Set app display name to I.R.I.S
         run: sed -i 's/android:label="iris_app"/android:label="I.R.I.S"/' android/app/src/main/AndroidManifest.xml
+      - name: Add biometric permissions (face/fingerprint unlock)
+        run: sed -i '/<application/i\    <uses-permission android:name="android.permission.USE_BIOMETRIC"/>\n    <uses-permission android:name="android.permission.USE_FINGERPRINT"/>' android/app/src/main/AndroidManifest.xml
       - name: Use FlutterFragmentActivity (required by local_auth biometrics)
         run: |
           f=$(grep -rl 'FlutterActivity()' android/app/src/main/kotlin | head -1)
           sed -i 's/import io.flutter.embedding.android.FlutterActivity/import io.flutter.embedding.android.FlutterFragmentActivity/' "$f"
           sed -i 's/: FlutterActivity()/: FlutterFragmentActivity()/' "$f"
+      - name: Generate crisp icons and splash assets from the 1024px master
+        run: |
+          python3 -m pip install --quiet pillow
+          python3 tool/make_icons.py
       - run: flutter pub get
       - run: dart run flutter_launcher_icons
+      - run: dart run flutter_native_splash:create
       - run: flutter build apk --debug
       - uses: actions/upload-artifact@v4
         with:
