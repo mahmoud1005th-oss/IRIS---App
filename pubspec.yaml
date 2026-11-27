@@ -20,6 +20,10 @@ dependencies:
   record: ^5.1.2
   audioplayers: ^6.1.0
   path_provider: ^2.1.4
+dependency_overrides:
+  record_platform_interface: 1.2.0
+  record_linux: 0.7.1
+  record_web: 1.1.6
 dev_dependencies:
   flutter_launcher_icons: ^0.13.1
   flutter_native_splash: ^2.4.3
