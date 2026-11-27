@@ -3,7 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:workmanager/workmanager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'features/ui/intro_splash.dart';
-import 'features/ui/hologram_ui.dart';
+import 'features/ui/v34_home.dart';
 import 'features/ui/admin_ui.dart';
 import 'core/services/auth_service.dart';
 import 'core/database/database_helper.dart';
@@ -78,7 +78,7 @@ class AuthGate extends StatelessWidget {
   Widget build(BuildContext context) {
     final auth = AuthService();
     if (auth.isSignedIn) {
-      return auth.isAdmin() ? const AdminUI() : const HologramUI();
+      return auth.isAdmin() ? const AdminUI() : const IrisHome();
     }
     // وضع الاختبار: الأنيميشن بيظهر كل تشغيل. لما محمود يثبت الشكل النهائي
     // نرجع kIntroFirstLaunchOnly = true فيشتغل أول مرة بس
@@ -92,7 +92,7 @@ class AuthGate extends StatelessWidget {
         if (!snap.hasData) {
           return const Scaffold(backgroundColor: Colors.black);
         }
-        return snap.data! ? const HologramUI() : const IntroSplashScreen();
+        return snap.data! ? const IrisHome() : const IntroSplashScreen();
       },
     );
   }
