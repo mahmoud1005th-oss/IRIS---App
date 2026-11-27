@@ -77,6 +77,11 @@ class AuthGate extends StatelessWidget {
     if (auth.isSignedIn) {
       return auth.isAdmin() ? const AdminUI() : const HologramUI();
     }
+    // وضع الاختبار: الأنيميشن بيظهر كل تشغيل. لما محمود يثبت الشكل النهائي
+    // نرجع kIntroFirstLaunchOnly = true فيشتغل أول مرة بس
+    if (!kIntroFirstLaunchOnly) {
+      return const IntroSplashScreen();
+    }
     // أنيميشن البداية بيظهر أول مرة بس؛ من تاني مرة يفتح على المحادثة على طول
     return FutureBuilder<bool>(
       future: _introSeen(),
