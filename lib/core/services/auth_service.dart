@@ -92,4 +92,13 @@ class AuthService {
       return null;
     }
   }
+
+  String? get displayName {
+    try {
+      final m = _auth?.currentUser?.userMetadata;
+      return (m?['full_name'] ?? m?['name']) as String?;
+    } catch (_) {
+      return null;
+    }
+  }
 }
