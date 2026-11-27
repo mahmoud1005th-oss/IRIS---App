@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
+import 'fingerprint_step.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../core/services/auth_service.dart';
 import 'onboarding_ui.dart';
@@ -84,32 +85,55 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   bool _covering =
       false; // البانيل الأسود بيتمدد يغطي الشاشة قبل الخطوة التالية
 
-  // لو البيانات مش كاملة: مفيش تبديل بانيلات، بس رسالة
+  // رسائل الحقول الناقصة (تحت الحقل الفاضي)
+  final Map<TextEditingController, String> _missing = {};
+
+  bool _validate(Map<TextEditingController, String> required) {
+    setState(() {
+      _missing.clear();
+      required.forEach((c, msg) {
+        if (c.text.trim().isEmpty) _missing[c] = msg;
+      });
+      _error = _missing.isEmpty
+          ? null
+          : "You haven't finished signing in. Fill in the empty fields.";
+    });
+    return _missing.isEmpty;
+  }
+
+  // لو البيانات مش كاملة: مفيش تبديل بانيلات، بس رسالة تحت الحقل الفاضي
   void _trySignIn() {
-    if (_email.text.trim().isEmpty || _password.text.isEmpty) {
-      setState(() => _error =
-          "You haven't completed your login. Enter your email and password first.");
-      return;
+    if (!_validate({
+      _email: 'Email is not filled in',
+      _password: 'Password is not filled in',
+    })) return;
+    if (MediaQuery.of(context).size.width >= 600) {
+      _sweepSwap(after: _signInWithEmail);
+    } else {
+      _signInWithEmail();
     }
-    _sweepSwap(after: _signInWithEmail);
   }
 
   void _tryRegister() {
-    if (_regEmail.text.trim().isEmpty || _regPassword.text.isEmpty) {
-      setState(() => _error =
-          "You haven't completed your details. Fill in your email and password first.");
-      return;
-    }
+    if (!_validate({
+      _regEmail: 'Email is not filled in',
+      _regPassword: 'Password is not filled in',
+    })) return;
     _sweepSwap(after: _register);
   }
 
-  Future<void> _goNext() async {
+  // بعد الدخول: البانيل الأسود يغطي الشاشة وبعدين خطوة تسجيل البصمة، وبعدها الصفحة اللي بعدها.
+  // لو الدخول كان بالبصمة نفسها بنتخطى خطوة التسجيل
+  Future<void> _goNext({bool skipFingerprint = false}) async {
     if (!mounted) return;
     setState(() => _covering = true);
     await Future.delayed(const Duration(milliseconds: 780));
     if (!mounted) return;
-    final Widget next =
-        _auth.isAdmin() ? const AdminUI() : const OnboardingUI();
+    final bool admin = _auth.isAdmin();
+    Widget nextPage() => admin ? const AdminUI() : const OnboardingUI();
+    final Widget next = skipFingerprint
+        ? nextPage()
+        : FingerprintStepPage(next: (_) => nextPage());
     Navigator.of(context).pushReplacement(irisSwapRoute(next));
   }
 
@@ -188,7 +212,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       await Future.delayed(const Duration(milliseconds: 1600));
       if (!mounted) return;
       setState(() => _scanning = false);
-      _goNext();
+      _goNext(skipFingerprint: true);
     } else {
       setState(() => _scanning = false);
     }
@@ -541,6 +565,9 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
               Expanded(
                 child: TextField(
                   controller: controller,
+                  onChanged: (_) {
+                    if (_missing.remove(controller) != null) setState(() {});
+                  },
                   obscureText: password && _obscure,
                   style: TextStyle(color: Colors.white, fontSize: 14 * s),
                   decoration: InputDecoration(
@@ -570,6 +597,14 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             ],
           ),
         ),
+        if (_missing[controller] != null) ...[
+          SizedBox(height: 4 * s),
+          Text(_missing[controller]!,
+              style: TextStyle(
+                  color: Colors.redAccent,
+                  fontSize: 11.5 * s,
+                  fontWeight: FontWeight.w600)),
+        ],
       ],
     );
   }
@@ -776,10 +811,9 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.face_unlock_outlined,
-                    color: kIrisAccent, size: 17 * s),
+                Icon(Icons.fingerprint, color: kIrisAccent, size: 17 * s),
                 SizedBox(width: 6 * s),
-                Text('Log in with face scan',
+                Text('Log in with fingerprint',
                     style: TextStyle(
                         color: kIrisAccent,
                         fontSize: 11.5 * s,
@@ -887,7 +921,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             ],
           ),
         );
-    InputDecoration deco(String hint, IconData icon, {Widget? suffix}) =>
+    InputDecoration deco(String hint, IconData icon,
+            {Widget? suffix, String? err}) =>
         InputDecoration(
           hintText: hint,
           prefixIcon: Icon(icon,
@@ -948,9 +983,15 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                         keyboardType: TextInputType.emailAddress,
                         style: TextStyle(
                             color: Colors.white, fontSize: 15 * uiScale),
-                        decoration:
-                            deco('name@example.com', Icons.mail_outline),
+                        onChanged: (_) {
+                          if (_missing.remove(_email) != null) setState(() {});
+                        },
+                        decoration: deco(
+                          'name@example.com',
+                          Icons.mail_outline,
+                        ),
                       ),
+                      _missingMsg(_email, uiScale),
                       SizedBox(height: 12 * uiScale),
                       label('Password',
                           trailing: Text('Forgot password?',
@@ -963,6 +1004,10 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                         obscureText: _obscure,
                         style: TextStyle(
                             color: Colors.white, fontSize: 15 * uiScale),
+                        onChanged: (_) {
+                          if (_missing.remove(_password) != null)
+                            setState(() {});
+                        },
                         decoration: deco(
                           '••••••••••',
                           Icons.lock_outline,
@@ -979,6 +1024,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                           ),
                         ),
                       ),
+                      _missingMsg(_password, uiScale),
                       SizedBox(height: 8 * uiScale),
                       Row(
                         children: [
@@ -1011,7 +1057,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                       ],
                       SizedBox(height: 14 * uiScale),
                       _morphButton(
-                          'Sign in', uiScale, _busy ? null : _signInWithEmail),
+                          'Sign in', uiScale, _busy ? null : _trySignIn),
                       SizedBox(height: 10 * uiScale),
                       _faceScanButton(uiScale, compact: true),
                       SizedBox(height: 14 * uiScale),
@@ -1218,9 +1264,9 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         Center(
           child: TextButton.icon(
             onPressed: _signInWithFace,
-            icon: Icon(Icons.face_unlock_outlined,
-                color: kIrisAccent, size: 18 * uiScale),
-            label: Text('Face scan',
+            icon:
+                Icon(Icons.fingerprint, color: kIrisAccent, size: 18 * uiScale),
+            label: Text('Fingerprint',
                 style: TextStyle(color: kIrisAccent, fontSize: 12 * uiScale)),
           ),
         ),
@@ -1390,9 +1436,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       height: (compact ? 44 : 52) * uiScale,
       child: OutlinedButton.icon(
         onPressed: _signInWithFace,
-        icon: Icon(Icons.face_unlock_outlined,
-            color: kIrisAccent, size: 22 * uiScale),
-        label: Text('Sign in with face scan',
+        icon: Icon(Icons.fingerprint, color: kIrisAccent, size: 22 * uiScale),
+        label: Text('Sign in with fingerprint',
             style: TextStyle(color: kIrisAccent, fontSize: 14 * uiScale)),
         style: OutlinedButton.styleFrom(
           side: BorderSide(color: kIrisAccent.withOpacity(0.6), width: 1.4),
@@ -1449,6 +1494,19 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     );
   }
 
+  Widget _missingMsg(TextEditingController c, double uiScale) {
+    final m = _missing[c];
+    if (m == null) return const SizedBox.shrink();
+    return Padding(
+      padding: EdgeInsets.only(top: 5 * uiScale, left: 4 * uiScale),
+      child: Text(m,
+          style: TextStyle(
+              color: Colors.redAccent,
+              fontSize: 12 * uiScale,
+              fontWeight: FontWeight.w600)),
+    );
+  }
+
   // حقل بحافة سفلية بس (ستايل شاشة اللابتوب)
   Widget _underlineField({
     required TextEditingController controller,
@@ -1457,22 +1515,32 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     required double uiScale,
     bool obscure = false,
   }) {
-    return TextField(
-      controller: controller,
-      obscureText: obscure,
-      style: TextStyle(color: Colors.white, fontSize: 15 * uiScale),
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: TextStyle(color: Colors.white54, fontSize: 14 * uiScale),
-        floatingLabelStyle: TextStyle(color: kIrisAccent),
-        prefixIcon: Icon(icon, color: Colors.white38, size: 20 * uiScale),
-        enabledBorder: const UnderlineInputBorder(
-          borderSide: BorderSide(color: Colors.white38),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: controller,
+          obscureText: obscure,
+          onChanged: (_) {
+            if (_missing.remove(controller) != null) setState(() {});
+          },
+          style: TextStyle(color: Colors.white, fontSize: 15 * uiScale),
+          decoration: InputDecoration(
+            labelText: label,
+            labelStyle:
+                TextStyle(color: Colors.white54, fontSize: 14 * uiScale),
+            floatingLabelStyle: TextStyle(color: kIrisAccent),
+            prefixIcon: Icon(icon, color: Colors.white38, size: 20 * uiScale),
+            enabledBorder: const UnderlineInputBorder(
+              borderSide: BorderSide(color: Colors.white38),
+            ),
+            focusedBorder: const UnderlineInputBorder(
+              borderSide: BorderSide(color: kIrisAccent, width: 1.6),
+            ),
+          ),
         ),
-        focusedBorder: const UnderlineInputBorder(
-          borderSide: BorderSide(color: kIrisAccent, width: 1.6),
-        ),
-      ),
+        _missingMsg(controller, uiScale),
+      ],
     );
   }
 
@@ -1627,7 +1695,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                       fontSize: 18 * uiScale,
                       fontWeight: FontWeight.w600)),
               SizedBox(height: 8 * uiScale),
-              Text('Verify with your device biometrics (face or fingerprint)',
+              Text('Verify with your fingerprint',
                   textAlign: TextAlign.center,
                   style:
                       TextStyle(color: Colors.white38, fontSize: 12 * uiScale)),
