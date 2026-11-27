@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:local_auth/local_auth.dart';
+import '../../core/services/auth_service.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
@@ -10,8 +12,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'login_page.dart' show kIrisAccent, IrisLogo;
 import '../../core/services/stt_service.dart';
+import '../../core/services/chat_service.dart';
 import 'menu_preview.dart' show MenuList;
-import 'menu_v5.dart' show MenuV5, v5PageFor;
+import 'menu_v5.dart' show MenuV5, v5PageFor, AccountAvatar;
 import 'batch3_preview.dart' show reelCard;
 import 'batch3b_preview.dart' show PayFrame;
 import 'flows_preview.dart' show PhoneWatchPreview;
@@ -310,7 +313,94 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
     super.initState();
     _loadThread();
     _ttsInit = _initTts();
+    _checkFpOffer();
   }
+
+  // اقتراح البصمة: مرة واحدة بس بعد الدخول، لو البصمة مش مفعّلة
+  bool _fpOffer = false;
+  Future<void> _checkFpOffer() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      if (sp.getBool('fingerprint_enabled') == true) return;
+      if (sp.getBool('fp_offer_shown') == true) return;
+      await sp.setBool('fp_offer_shown', true);
+      await Future.delayed(const Duration(milliseconds: 1200));
+      if (mounted) setState(() => _fpOffer = true);
+    } catch (_) {}
+  }
+
+  Future<void> _enableFp() async {
+    try {
+      final bio = LocalAuthentication();
+      if (!await bio.canCheckBiometrics) {
+        if (mounted) {
+          setState(() => _fpOffer = false);
+          _soon(context, 'سجّل بصمة في إعدادات الموبايل الأول');
+        }
+        return;
+      }
+      final ok = await bio.authenticate(
+          localizedReason: 'فعّل البصمة لحماية حسابك في آيرس',
+          options: const AuthenticationOptions(biometricOnly: true));
+      if (ok) {
+        final sp = await SharedPreferences.getInstance();
+        await sp.setBool('fingerprint_enabled', true);
+        if (mounted) setState(() => _fpOffer = false);
+      }
+    } catch (_) {}
+  }
+
+  Widget _fpOfferCard() => Positioned(
+        top: 8,
+        left: 14,
+        right: 14,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+          decoration: BoxDecoration(
+              color: _card,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: kIrisAccent.withOpacity(.4))),
+          child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Row(children: [
+                  Icon(Icons.fingerprint, color: kIrisAccent, size: 22),
+                  SizedBox(width: 8),
+                  Text('حماية إضافية',
+                      style: TextStyle(
+                          color: kIrisAccent,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14)),
+                ]),
+                const SizedBox(height: 6),
+                const Text(
+                    'تحب تفعّل البصمة؟ هتحمي حسابك ومحادثاتك وتدخل أسرع المرة الجاية.',
+                    style: TextStyle(
+                        color: Colors.white, fontSize: 14, height: 1.5)),
+                const SizedBox(height: 10),
+                Row(children: [
+                  GestureDetector(
+                      onTap: _enableFp,
+                      child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                              color: kIrisAccent,
+                              borderRadius: BorderRadius.circular(12)),
+                          child: const Text('فعّل البصمة',
+                              style: TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.w800)))),
+                  const SizedBox(width: 14),
+                  GestureDetector(
+                      onTap: () => setState(() => _fpOffer = false),
+                      child: const Text('مش دلوقتي',
+                          style: TextStyle(color: Colors.white54))),
+                ]),
+              ]),
+        ),
+      );
 
   // صوت آيرس: على التليفون نفسه (من غير إنترنت ومن غير حجم زيادة). الذكر/الأنثى حسب اختيار الدخول
   Future<void> _initTts() async {
@@ -358,6 +448,7 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
   }
 
   final SttService _stt = makeSttService();
+  final ChatService _chat = makeChatService();
   Future<void> _transcribe(_Msg m) async {
     if (m.transcript != null || m.transcribing || m.path == null) return;
     setState(() => m.transcribing = true);
@@ -508,14 +599,26 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
       _phase = web ? 'web' : 'thinking';
     });
     _toBottom();
-    await Future.delayed(web
-        ? Duration(milliseconds: 1900 * kWebSteps.length + 400)
-        : const Duration(milliseconds: 1500));
+    String? aiText;
+    if (_chat.connected) {
+      // الذكاء متوصل: الرد الحقيقي من السيرفر (الرسائل الصوتية بتتبعت لما التفريغ يتوصل)
+      final hist = [
+        for (final x in _msgs)
+          if (x.text.isNotEmpty) ChatTurn(x.me ? 'user' : 'assistant', x.text)
+      ];
+      final r = await _chat.reply(hist, mode: _mode.name);
+      aiText = r.text ?? 'مقدرتش أوصل للسيرفر دلوقتي، جرّب تاني';
+    } else {
+      await Future.delayed(web
+          ? Duration(milliseconds: 1900 * kWebSteps.length + 400)
+          : const Duration(milliseconds: 1500));
+    }
     if (!mounted) return;
     setState(() {
       _phase = '';
       _msgs.add(_Msg(
-          m.voiceSec != null ? kVoiceReply : (web ? kWebReply : kTestReply),
+          aiText ??
+              (m.voiceSec != null ? kVoiceReply : (web ? kWebReply : kTestReply)),
           false));
     });
     _saveThread();
@@ -932,6 +1035,38 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
     );
   }
 
+  // شريط الموديلات في نص الشريط العلوي: اختيار مباشر
+  Widget _modeBar() {
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+            color: _card,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white12)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          for (final m in IrisMode.values)
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => setState(() => _mode = m),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                decoration: BoxDecoration(
+                    color: _mode == m ? kIrisAccent : Colors.transparent,
+                    borderRadius: BorderRadius.circular(15)),
+                child: Text(_modeInfo[m]![0],
+                    style: TextStyle(
+                        color: _mode == m ? Colors.black : Colors.white60,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800)),
+              ),
+            ),
+        ]),
+      ),
+    );
+  }
+
   Widget _modeButton() {
     return GestureDetector(
       onTap: _toggleMenu,
@@ -1221,7 +1356,7 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
           backgroundColor: const Color(0xFF0B1118),
           width: 320,
           child: SafeArea(
-              child: SingleChildScrollView(child: MenuV5(onSelect: _onMenu))),
+              child: SingleChildScrollView(child: MenuV5(onSelect: _onMenu, admin: AuthService().isAdmin()))),
         ),
         body: SafeArea(
           child: Stack(children: [
@@ -1232,26 +1367,30 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
                   GestureDetector(
                       onTap: () => _scaffoldKey.currentState?.openDrawer(),
                       child: const Icon(Icons.menu, color: Colors.white70)),
-                  const SizedBox(width: 12),
-                  const IrisLogo(size: 30),
-                  const SizedBox(width: 7),
+                  const SizedBox(width: 10),
                   const Text('IRIS',
                       style: TextStyle(
                           color: Colors.white,
-                          fontSize: 18,
+                          fontSize: 17,
                           fontWeight: FontWeight.w900,
                           letterSpacing: 3)),
-                  const Spacer(),
-                  if (_liveOn)
-                    Row(children: const [
-                      Icon(Icons.circle, color: _live, size: 10),
-                      SizedBox(width: 5),
-                      Text('مباشر',
-                          style: TextStyle(
-                              color: _live, fontWeight: FontWeight.w800))
-                    ])
-                  else
-                    _modeButton(),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Center(
+                      child: _liveOn
+                          ? Row(mainAxisSize: MainAxisSize.min, children: const [
+                              Icon(Icons.circle, color: _live, size: 10),
+                              SizedBox(width: 5),
+                              Text('مباشر',
+                                  style: TextStyle(
+                                      color: _live,
+                                      fontWeight: FontWeight.w800))
+                            ])
+                          : _modeBar(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  AccountAvatar(size: 34, name: widget.name),
                 ]),
               ),
               const Divider(color: Colors.white12),
@@ -1301,6 +1440,7 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
                                 ),
                             ],
                           ),
+                        if (_fpOffer) _fpOfferCard(),
                       ]),
               ),
               _inputRow(),
