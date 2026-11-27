@@ -83,4 +83,13 @@ class AuthService {
       return false;
     }
   }
+
+  // إيميل الحساب الحالي لو موجود (بنستخدمه في ترحيب "Welcome back" بعد المسح)
+  String? get currentEmail {
+    try {
+      return _auth?.currentUser?.email;
+    } catch (_) {
+      return null;
+    }
+  }
 }
