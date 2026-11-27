@@ -312,6 +312,7 @@ class _LoginPageState extends State<LoginPage>
     final double uiScale = isTv ? 1.35 : (isWide ? 1.1 : 1.0);
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       backgroundColor: Colors.black,
       body: Stack(
         fit: StackFit.expand,
@@ -988,10 +989,10 @@ class _LoginPageState extends State<LoginPage>
           Positioned.fill(
             top: headerH - 6,
             child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 400),
+              duration: const Duration(milliseconds: 160),
               opacity: _covering ? 0 : 1,
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(18, 22, 18, 14),
+                padding: EdgeInsets.fromLTRB(18, 22, 18, _kbOpen ? c.maxHeight * 0.55 : 14),
                 child: Container(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
                   decoration: BoxDecoration(
@@ -1125,8 +1126,8 @@ class _LoginPageState extends State<LoginPage>
           ),
           // النص الأسود فوق: حافة منحنية متوهجة + لوجو + Welcome back
           AnimatedPositioned(
-            duration: const Duration(milliseconds: 750),
-            curve: Curves.easeInOutCubic,
+            duration: const Duration(milliseconds: 380),
+            curve: Curves.easeOutCubic,
             top: 0,
             left: 0,
             right: 0,
@@ -1177,7 +1178,7 @@ class _LoginPageState extends State<LoginPage>
                             ),
                             // لما الكيبورد يفتح (بداية الكتابة) السطرين بيختفوا خالص
                             AnimatedOpacity(
-                              duration: const Duration(milliseconds: 160),
+                              duration: const Duration(milliseconds: 100),
                               opacity: _kbOpen ? 0.0 : 1.0,
                               child: Column(children: [
                                 SizedBox(height: 30 * uiScale),
@@ -1210,8 +1211,8 @@ class _LoginPageState extends State<LoginPage>
     return LayoutBuilder(builder: (context, c) {
       return Center(
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 380),
-          curve: Curves.easeInOutCubic,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
           width: _busy ? h : c.maxWidth,
           height: h,
           decoration: BoxDecoration(
@@ -2341,7 +2342,7 @@ class IrisLogo extends StatelessWidget {
 // (تحت في الموبايل / يمين في اللابتوب والتلفزيون) ويكشف الخطوة اللي بعده
 Route<void> irisSwapRoute(Widget next) {
   return PageRouteBuilder<void>(
-    transitionDuration: const Duration(milliseconds: 760),
+    transitionDuration: const Duration(milliseconds: 380),
     pageBuilder: (_, __, ___) => next,
     transitionsBuilder: (ctx, anim, __, child) {
       final size = MediaQuery.of(ctx).size;
