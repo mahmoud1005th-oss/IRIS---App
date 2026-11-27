@@ -64,6 +64,9 @@ class IrisApp extends StatelessWidget {
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
+  // وضع الاختبار: false = الأنيميشن يظهر كل تشغيل، true = أول تشغيل بس
+  static const bool kIntroFirstLaunchOnly = false;
+
   static const String kIntroSeenKey = 'intro_seen';
 
   Future<bool> _introSeen() async {
