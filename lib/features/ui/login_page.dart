@@ -172,12 +172,17 @@ class _LoginPageState extends State<LoginPage>
     setState(() => _covering = true);
     await Future.delayed(const Duration(milliseconds: 780));
     if (!mounted) return;
-    final bool admin = _auth.isAdmin();
-    Widget nextPage() => admin ? const AdminUI() : const OnboardingUI();
-    final Widget next = skipFingerprint
-        ? nextPage()
-        : FingerprintStepPage(next: (_) => nextPage());
+    // الأدمن كمان بيدخل المحادثة العادية، ولوحة المايسترو من القائمة. مفيش خطوة بصمة قبل الدخول
+    final Widget next = const OnboardingUI();
     Navigator.of(context).pushReplacement(irisSwapRoute(next));
+  }
+
+  // الإيميل بيتحفظ على الموبايل عشان دايرة الحساب (أول حرف)
+  Future<void> _saveEmail(String e) async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setString('iris_user_email', e.trim());
+    } catch (_) {}
   }
 
   Future<void> _signInWithEmail() async {
@@ -188,12 +193,14 @@ class _LoginPageState extends State<LoginPage>
     try {
       if (!supabaseConfigured) {
         // المفاتيح لسه Placeholder - وضع تجريبي: التطبيق يكمل عادي
+        await _saveEmail(_email.text);
         _goNext();
         return;
       }
       final ok =
           await _auth.signInWithPassword(_email.text.trim(), _password.text);
       if (ok) {
+        await _saveEmail(_email.text);
         _goNext();
       } else {
         setState(
@@ -211,12 +218,14 @@ class _LoginPageState extends State<LoginPage>
     });
     try {
       if (!supabaseConfigured) {
+        await _saveEmail(_regEmail.text);
         _goNext();
         return;
       }
       final ok = await _auth.signUpWithPassword(
           _regEmail.text.trim(), _regPassword.text);
       if (ok) {
+        await _saveEmail(_regEmail.text);
         _goNext();
       } else {
         setState(() => _error = 'Registration failed. Try another email.');
@@ -1011,6 +1020,7 @@ class _LoginPageState extends State<LoginPage>
                       label('Email address'),
                       TextField(
                         controller: _email,
+                        scrollPadding: EdgeInsets.zero,
                         keyboardType: TextInputType.emailAddress,
                         style: TextStyle(
                             color: Colors.white, fontSize: 15 * uiScale),
@@ -1032,6 +1042,7 @@ class _LoginPageState extends State<LoginPage>
                                   fontWeight: FontWeight.w700))),
                       TextField(
                         controller: _password,
+                        scrollPadding: EdgeInsets.zero,
                         obscureText: _obscure,
                         style: TextStyle(
                             color: Colors.white, fontSize: 15 * uiScale),
@@ -1126,7 +1137,7 @@ class _LoginPageState extends State<LoginPage>
           ),
           // النص الأسود فوق: حافة منحنية متوهجة + لوجو + Welcome back
           AnimatedPositioned(
-            duration: const Duration(milliseconds: 380),
+            duration: _covering ? const Duration(milliseconds: 380) : Duration.zero,
             curve: Curves.easeOutCubic,
             top: 0,
             left: 0,
@@ -1178,7 +1189,7 @@ class _LoginPageState extends State<LoginPage>
                             ),
                             // لما الكيبورد يفتح (بداية الكتابة) السطرين بيختفوا خالص
                             AnimatedOpacity(
-                              duration: const Duration(milliseconds: 100),
+                              duration: Duration.zero,
                               opacity: _kbOpen ? 0.0 : 1.0,
                               child: Column(children: [
                                 SizedBox(height: 30 * uiScale),
