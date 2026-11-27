@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'login_page.dart' show kIrisAccent, IrisLogo;
 import 'v34_home.dart' show IrisHome;
+import '../../core/services/auth_service.dart';
 
 // واجهة جانبية جديدة (V3.5): واجهة فقط، مفيش ربط حقيقي.
 const Color _bg = Color(0xFF05080C);
@@ -8,25 +10,76 @@ const Color _panel = Color(0xFF0B1118);
 const Color _card = Color(0xFF111A24);
 const Color _gold = Colors.white;
 
+// دايرة الحساب: أول حرف من اسم المستخدم (أو إيميله)، وإلا علامة آيرس
+class AccountAvatar extends StatefulWidget {
+  final double size;
+  final String? name;
+  const AccountAvatar({super.key, this.size = 42, this.name});
+  @override
+  State<AccountAvatar> createState() => _AccountAvatarState();
+}
+
+class _AccountAvatarState extends State<AccountAvatar> {
+  String _seed = '';
+  @override
+  void initState() {
+    super.initState();
+    final a = AuthService();
+    _seed = (widget.name ?? a.displayName ?? a.currentEmail ?? '').trim();
+    if (_seed.isEmpty) _load();
+  }
+
+  // الاسم لو معروف، وإلا الإيميل اللي المستخدم دخل بيه (محفوظ على الموبايل)
+  Future<void> _load() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final v = (p.getString('iris_user_name') ?? p.getString('iris_user_email') ?? '').trim();
+      if (v.isNotEmpty && mounted) setState(() => _seed = v);
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = widget.size;
+    if (_seed.isEmpty) return IrisLogo(size: size);
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(shape: BoxShape.circle, color: kIrisAccent.withOpacity(.18), border: Border.all(color: kIrisAccent.withOpacity(.6))),
+      child: Text(_seed.characters.first.toUpperCase(), style: TextStyle(color: kIrisAccent, fontSize: size * .45, fontWeight: FontWeight.w800)),
+    );
+  }
+}
+
 Widget _lbl(String t) => Padding(
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 4),
-      child: Text(t, style: const TextStyle(color: Colors.white38, fontSize: 11, letterSpacing: 1.1, fontWeight: FontWeight.w700)),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
+      child: Row(children: [
+        Container(width: 3, height: 12, decoration: BoxDecoration(color: kIrisAccent.withOpacity(.7), borderRadius: BorderRadius.circular(2))),
+        const SizedBox(width: 8),
+        Text(t, style: const TextStyle(color: Colors.white54, fontSize: 11.5, letterSpacing: .8, fontWeight: FontWeight.w800)),
+      ]),
     );
 
 Widget _mrow(IconData ic, String t, {String? sub, String? tag, bool dim = false, VoidCallback? onTap}) => GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: Container(
-        height: 44,
+        height: 48,
         margin: const EdgeInsets.fromLTRB(10, 1, 10, 1),
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
         child: Row(children: [
-          Icon(ic, color: dim ? Colors.white54 : Colors.white70, size: 21),
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(color: Colors.white.withOpacity(dim ? .03 : .06), borderRadius: BorderRadius.circular(10)),
+            child: Icon(ic, color: dim ? Colors.white54 : kIrisAccent, size: 19),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(t, style: TextStyle(color: dim ? Colors.white70 : Colors.white, fontSize: 14.5, fontWeight: FontWeight.w500)),
-              if (sub != null) Text(sub, style: const TextStyle(color: Colors.white38, fontSize: 10.5)),
+              Text(t, style: TextStyle(color: dim ? Colors.white70 : Colors.white, fontSize: 14.5, fontWeight: FontWeight.w600)),
+              if (sub != null) Padding(padding: const EdgeInsets.only(top: 1), child: Text(sub, style: const TextStyle(color: Colors.white38, fontSize: 11))),
             ]),
           ),
           if (tag != null)
@@ -73,17 +126,32 @@ class UsageCap extends StatelessWidget {
 
 class MenuV5 extends StatelessWidget {
   final void Function(String)? onSelect;
-  const MenuV5({super.key, this.onSelect});
+  final bool admin;
+  const MenuV5({super.key, this.onSelect, this.admin = false});
   VoidCallback? _t(String s) => onSelect == null ? null : () => onSelect!(s);
   @override
   Widget build(BuildContext context) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
-        child: Row(children: const [
-          IrisLogo(size: 42),
-          SizedBox(width: 10),
-          Text('IRIS', style: TextStyle(color: Colors.white, fontSize: 25, fontWeight: FontWeight.w900, letterSpacing: 4)),
+        child: Row(children: [
+          const AccountAvatar(size: 42),
+          const SizedBox(width: 10),
+          const Text('IRIS', style: TextStyle(color: Colors.white, fontSize: 25, fontWeight: FontWeight.w900, letterSpacing: 4)),
+          const Spacer(),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _t('settings'),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              decoration: BoxDecoration(color: kIrisAccent.withOpacity(.14), borderRadius: BorderRadius.circular(12), border: Border.all(color: kIrisAccent.withOpacity(.5))),
+              child: Row(mainAxisSize: MainAxisSize.min, children: const [
+                Icon(Icons.settings_outlined, color: kIrisAccent, size: 18),
+                SizedBox(width: 5),
+                Text('الإعدادات', style: TextStyle(color: kIrisAccent, fontSize: 12.5, fontWeight: FontWeight.w800)),
+              ]),
+            ),
+          ),
         ]),
       ),
       const Divider(color: Colors.white12, height: 12),
@@ -106,6 +174,7 @@ class MenuV5 extends StatelessWidget {
       const Divider(color: Colors.white12, height: 14),
       _mrow(Icons.settings_outlined, 'الإعدادات', onTap: _t('settings')),
       _mrow(Icons.help_outline, 'الحصول على المساعدة', onTap: _t('help')),
+      if (admin) _mrow(Icons.admin_panel_settings_outlined, 'لوحة المايسترو', onTap: _t('admin')),
       const SizedBox(height: 10),
     ]);
   }
@@ -765,6 +834,8 @@ Widget? v5PageFor(String key) {
       return const SettingsV5();
     case 'help':
       return const HelpV5();
+    case 'admin':
+      return const AdminV5();
     case 'notebook':
       return const NotebookV6();
   }
@@ -777,7 +848,7 @@ class ProfileV6 extends StatelessWidget {
   @override
   Widget build(BuildContext c) => _subScreen('حسابي', [
         const SizedBox(height: 10),
-        const Center(child: IrisLogo(size: 80)),
+        const Center(child: AccountAvatar(size: 80)),
         _field('الاسم', ic: Icons.badge_outlined),
         _field('البريد الإلكتروني', ic: Icons.mail_outline),
         _group('', [_srow(Icons.password, 'تغيير كلمة السر'), _srow(Icons.verified_user_outlined, 'الدخول بخطوتين', val: 'قريباً', last: true)]),
