@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../main.dart' show AuthGate;
 import 'login_page.dart';
+import 'intro_legend.dart';
 
 // شاشة البداية (V3.4): شاشة سودا، أيقونة آيرس، تحتها "I R I S" متحفورة بليزر،
 // وتحتها الاسم الكامل بالإنجليزي. من غير شبكة الأعصاب. وبعدها تفتح على شاشة الدخول.
@@ -21,14 +22,25 @@ class _IntroSplashScreenState extends State<IntroSplashScreen>
   late final AnimationController _c;
   bool _navigated = false;
 
+  bool _warmed = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_warmed) return;
+    _warmed = true;
+    // تجهيز مسبق لشاشة الدخول أثناء الإنترو: اللوجو في الذاكرة وفروع الأعصاب محسوبة
+    precacheImage(const AssetImage('assets/logo.png'), context);
+    Future.microtask(RetinaNervePainter.prewarm);
+  }
+
   @override
   void initState() {
     super.initState();
     _c = AnimationController(vsync: this, duration: kIntroDuration)
       ..addStatusListener((s) {
-        if (s == AnimationStatus.completed) _goNext();
-      })
-      ..forward();
+        if (s == AnimationStatus.completed) {}
+      });
   }
 
   Future<void> _markIntroSeen() async {
@@ -64,6 +76,11 @@ class _IntroSplashScreenState extends State<IntroSplashScreen>
 
   @override
   Widget build(BuildContext context) {
+    return IntroLegend(onDone: _goNext);
+  }
+
+  // ignore: unused_element
+  Widget _oldBuild(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final k =
         (min(size.width, size.height * 0.62) / 390).clamp(0.8, 2.0).toDouble();
