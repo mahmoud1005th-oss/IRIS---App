@@ -26,7 +26,16 @@ class LoginPage extends StatefulWidget {
   State<LoginPage> createState() => _LoginPageState();
 }
 
-class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
+class _LoginPageState extends State<LoginPage>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
+  bool _kbOpen = false;
+
+  @override
+  void didChangeMetrics() {
+    final open = View.of(context).viewInsets.bottom > 0;
+    if (open != _kbOpen && mounted) setState(() => _kbOpen = open);
+  }
+
   final _email = TextEditingController();
   final _password = TextEditingController();
   final _regName = TextEditingController();
@@ -76,6 +85,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     SharedPreferences.getInstance().then((p) {
       final n = p.getString('iris_user_name');
       if (mounted && n != null && n.trim().isNotEmpty) {
@@ -101,6 +111,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _email.dispose();
     _password.dispose();
     _regName.dispose();
@@ -1133,52 +1144,55 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                     child: Padding(
                       padding: EdgeInsets.only(
                           top: 34 * uiScale, bottom: 20 * uiScale),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.start,
-                        children: [
-                          AnimatedBuilder(
-                            animation: _orbitController,
-                            builder: (context, _) {
-                              final pulse = 0.5 +
-                                  0.5 * sin(_orbitController.value * 2 * pi);
-                              final d = 140 * uiScale;
-                              return DecoratedBox(
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: kIrisAccent
-                                          .withOpacity(0.10 + 0.14 * pulse),
-                                      blurRadius: 34 + 14 * pulse,
-                                    ),
-                                  ],
-                                ),
-                                child: RotationTransition(
-                                    turns: _orbitController,
-                                    child: IrisLogo(size: d)),
-                              );
-                            },
-                          ),
-                          SizedBox(height: 22 * uiScale),
-                          _ShimmerText(
-                              animation: _shimmer,
-                              text: _savedName == null
-                                  ? 'اهلا بيك'
-                                  : 'اهلا يا $_savedName',
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 30 * uiScale,
-                                  fontWeight: FontWeight.w800)),
-                          SizedBox(height: 6 * uiScale),
-                          _ShimmerText(
-                              animation: _shimmer,
-                              phase: 0.18,
-                              text: 'سجّل دخولك وكمّل مع آيرس',
-                              style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 14 * uiScale)),
-                        ],
-                      ),
+                      child: ClipRect(
+                          child: OverflowBox(
+                        alignment: Alignment.topCenter,
+                        minHeight: 0,
+                        maxHeight: double.infinity,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.start,
+                          children: [
+                            AnimatedBuilder(
+                              animation: _orbitController,
+                              builder: (context, _) {
+                                final pulse = 0.5 +
+                                    0.5 * sin(_orbitController.value * 2 * pi);
+                                final d = 140 * uiScale;
+                                return DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: kIrisAccent
+                                            .withOpacity(0.10 + 0.14 * pulse),
+                                        blurRadius: 34 + 14 * pulse,
+                                      ),
+                                    ],
+                                  ),
+                                  child: RotationTransition(
+                                      turns: _orbitController,
+                                      child: IrisLogo(size: d)),
+                                );
+                              },
+                            ),
+                            // لما الكيبورد يفتح (بداية الكتابة) السطرين بيختفوا خالص
+                            AnimatedOpacity(
+                              duration: const Duration(milliseconds: 160),
+                              opacity: _kbOpen ? 0.0 : 1.0,
+                              child: Column(children: [
+                                SizedBox(height: 30 * uiScale),
+                                _ShimmerText(
+                                    animation: _shimmer,
+                                    phase: 0.18,
+                                    text: 'سجّل دخولك وكمّل مع آيرس',
+                                    style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 17 * uiScale)),
+                              ]),
+                            ),
+                          ],
+                        ),
+                      )),
                     ),
                   ),
                 ),
@@ -2493,7 +2507,6 @@ class _CurtainEdgePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _CurtainEdgePainter old) => old.lift != lift;
 }
-
 
 // نص بيعدي عليه شعاع لمعان (شيمر) عشان الشاشة تبقى حية
 class _ShimmerText extends StatelessWidget {
