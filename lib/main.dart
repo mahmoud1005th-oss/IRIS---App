@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:workmanager/workmanager.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'features/ui/intro_splash.dart';
 import 'features/ui/hologram_ui.dart';
 import 'features/ui/admin_ui.dart';
@@ -59,9 +60,16 @@ class IrisApp extends StatelessWidget {
 }
 
 // بوابة الدخول: لو فيه جلسة مسجلة يدخل على طول، غير كده يبدأ بأنيميشن البداية
-// وبعدين اللوجو، وبعدين شاشة تسجيل الدخول (V3)
+// في أول تشغيل فقط، وبعدها يفتح على المحادثة مباشرة (V3.1)
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
+
+  static const String kIntroSeenKey = 'intro_seen';
+
+  Future<bool> _introSeen() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(kIntroSeenKey) ?? false;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,6 +77,15 @@ class AuthGate extends StatelessWidget {
     if (auth.isSignedIn) {
       return auth.isAdmin() ? const AdminUI() : const HologramUI();
     }
-    return const IntroSplashScreen();
+    // أنيميشن البداية بيظهر أول مرة بس؛ من تاني مرة يفتح على المحادثة على طول
+    return FutureBuilder<bool>(
+      future: _introSeen(),
+      builder: (context, snap) {
+        if (!snap.hasData) {
+          return const Scaffold(backgroundColor: Colors.black);
+        }
+        return snap.data! ? const HologramUI() : const IntroSplashScreen();
+      },
+    );
   }
 }
