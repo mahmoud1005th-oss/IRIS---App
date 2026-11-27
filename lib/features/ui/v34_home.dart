@@ -6,6 +6,7 @@ import 'menu_preview.dart' show MenuList;
 import 'batch3_preview.dart' show reelCard;
 import 'batch3b_preview.dart' show PayFrame;
 import 'flows_preview.dart' show PhoneWatchPreview;
+import 'live_view.dart';
 
 const Color _bg = Color(0xFF05080C);
 const Color _card = Color(0xFF111A24);
@@ -13,7 +14,12 @@ const Color _gold = Color(0xFFFFC857);
 const Color _live = Color(0xFFFF5C7A);
 
 const String kTestReply =
-    'ايوه كده يا محمود، التيست اشتغل. جاهزين نربط السيرفرات عشان نولّد الكلام والصور والفيديوهات ونذاكر ونراجع مشاريعك.';
+    'يا هلا يا محمود! التيست اشتغل تمام وأنا جنبك. جاهز أساعدك في الكتابة والصور والفيديوهات والمذاكرة ومراجعة مشاريعك. قولي نبدأ بإيه؟';
+
+const String kVoiceDemoText = 'اهلا يا آيرس، عايز أعرف أخبار الذكاء الاصطناعي النهاردة.';
+
+const String kWebReply =
+    'خلصت يا محمود! جمعتلك الخلاصة بشكل بسيط. (ده عرض تجريبي للشكل بس، مفيش بحث حقيقي لسه)';
 
 void _soon(BuildContext c, String what) {
   ScaffoldMessenger.of(c).showSnackBar(SnackBar(
@@ -25,7 +31,149 @@ void _soon(BuildContext c, String what) {
 class _Msg {
   final String text;
   final bool me;
-  _Msg(this.text, this.me);
+  final int? voiceSec; // لو رسالة صوتية
+  bool showText = false; // نص الرسالة الصوتية ظاهر تحتها (CC)
+  int status; // ٠ اتبعتت ✓ · ١ وصلت ✓✓ · ٢ اتقرت ✓✓ (أزرق)
+  _Msg(this.text, this.me, {this.voiceSec, this.status = 0});
+}
+
+enum IrisMode { auto, flashLite, flash, proLite }
+
+const _modeInfo = <IrisMode, List<String>>{
+  IrisMode.auto: ['Auto', 'تلقائي حسب نوع السؤال'],
+  IrisMode.flashLite: ['Flash Lite', 'أسرع رد، للأسئلة الخفيفة'],
+  IrisMode.flash: ['Flash', 'متوازن بين السرعة والجودة'],
+  IrisMode.proLite: ['Pro Lite', 'أعمق تفكير، للأسئلة الصعبة'],
+};
+
+const List<String> kWebSteps = [
+  'أنا بدوّر في موقع Wikipedia دلوقتي...',
+  'أنا بدوّر في موقع BBC عربي دلوقتي...',
+  'بقرا من موقع Reuters...',
+  'بجمّع اللي لقيته وبرتّبه ليك...',
+];
+
+// شعاع ليزر بيمسح السطر القديم ويكتب الجديد في نفس المكان (واجهة فقط)
+class LaserSwapLine extends StatefulWidget {
+  final List<String> lines;
+  final Duration step;
+  final double? freezeAt; // للصور الثابتة: نقطة زمنية بالثواني
+  const LaserSwapLine({super.key, required this.lines, this.step = const Duration(milliseconds: 1900), this.freezeAt});
+  @override
+  State<LaserSwapLine> createState() => _LaserSwapLineState();
+}
+
+class _LaserSwapLineState extends State<LaserSwapLine> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: widget.step * widget.lines.length);
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.freezeAt != null) {
+      _c.value = (widget.freezeAt! * 1000 / _c.duration!.inMilliseconds).clamp(0.0, 1.0);
+    } else {
+      _c.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, __) {
+        final n = widget.lines.length;
+        final pos = (_c.value * n).clamp(0.0, n - 0.0001);
+        final i = pos.floor();
+        final f = pos - i;
+        // أول ٣٠٪ كتابة، ٥٠٪ ثابت، آخر ٢٠٪ مسح (إلا السطر الأخير يفضل)
+        final last = i == n - 1;
+        double from = 0, to = 1; // نطاق الظهور
+        bool writing = false, erasing = false;
+        if (f < 0.3) {
+          writing = true;
+          to = f / 0.3;
+        } else if (f > 0.8 && !last) {
+          erasing = true;
+          from = (f - 0.8) / 0.2;
+        }
+        return SizedBox(
+          height: 22,
+          child: LayoutBuilder(builder: (context, c) {
+            final w = c.maxWidth;
+            final tp = TextPainter(text: TextSpan(text: widget.lines[i], style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)), textDirection: TextDirection.rtl)..layout();
+            final tw = math.min(tp.width + 4, w);
+            // RTL: الشعاع بيمشي من اليمين للشمال على عرض النص نفسه
+            final laserX = writing ? w - tw * to : (erasing ? w - tw * from : -10.0);
+            return Stack(children: [
+              ClipRect(
+                clipper: _SpanClipper(writing ? w - tw * to : 0.0, erasing ? w - tw * from : w),
+                child: Align(alignment: Alignment.centerRight, child: Text(widget.lines[i], style: const TextStyle(color: Colors.white70, fontSize: 12.5, fontWeight: FontWeight.w600))),
+              ),
+              if (writing || erasing)
+                Positioned(
+                  left: laserX - 1,
+                  top: 2,
+                  bottom: 2,
+                  child: Container(width: 2, decoration: BoxDecoration(color: const Color(0xFFEAF4FB), boxShadow: [BoxShadow(color: kIrisAccent.withOpacity(.9), blurRadius: 10, spreadRadius: 1)])),
+                ),
+            ]);
+          }),
+        );
+      },
+    );
+  }
+}
+
+class _SpanClipper extends CustomClipper<Rect> {
+  final double a, b; // إحداثيات بالبكسل
+  _SpanClipper(this.a, this.b);
+  @override
+  Rect getClip(Size s) => Rect.fromLTRB(a, 0, b, s.height);
+  @override
+  bool shouldReclip(_SpanClipper o) => o.a != a || o.b != b;
+}
+
+// علامات الرسالة زي واتساب
+class Ticks extends StatelessWidget {
+  final int status;
+  const Ticks(this.status, {super.key});
+  @override
+  Widget build(BuildContext context) {
+    final col = status >= 2 ? const Color(0xFF53BDEB) : Colors.white54;
+    return Icon(status == 0 ? Icons.check : Icons.done_all, size: 16, color: col);
+  }
+}
+
+// مؤشر "بفكر": لوجو صغير بيلف مع نقط
+class ThinkingChip extends StatelessWidget {
+  final Animation<double> anim;
+  final Widget? below;
+  const ThinkingChip({super.key, required this.anim, this.below});
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: anim,
+      builder: (_, __) => Container(
+        margin: const EdgeInsets.only(top: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(color: _card, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white10)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Transform.rotate(angle: anim.value * 2 * math.pi, child: const IrisLogo(size: 22)),
+          const SizedBox(width: 9),
+          for (var i = 0; i < 3; i++)
+            Container(width: 6, height: 6, margin: const EdgeInsets.symmetric(horizontal: 2.5), decoration: BoxDecoration(shape: BoxShape.circle, color: kIrisAccent.withOpacity(.25 + .75 * (0.5 + 0.5 * math.sin(anim.value * 2 * math.pi * 2 - i * 1.0))))),
+          const SizedBox(width: 6),
+          const Text('بفكر', style: TextStyle(color: Colors.white54, fontSize: 12.5)),
+        ]),
+      ),
+    );
+  }
 }
 
 // الشاشة الرئيسية: شات + قائمة جانبية + زر Live
@@ -33,7 +181,8 @@ class IrisHome extends StatefulWidget {
   final String? gender;
   final String? language;
   final String? country;
-  const IrisHome({super.key, this.gender, this.language, this.country});
+  final String? name;
+  const IrisHome({super.key, this.gender, this.language, this.country, this.name});
   @override
   State<IrisHome> createState() => _IrisHomeState();
 }
@@ -42,11 +191,21 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
   final _ctrl = TextEditingController();
   final _scroll = ScrollController();
   final _msgs = <_Msg>[];
-  bool _typing = false;
+  String _phase = ''; // '' | thinking | web
   bool _liveOn = false;
   int _liveSec = 0;
   Timer? _liveTimer;
+  bool _rec = false;
+  int _recSec = 0;
+  Timer? _recTimer;
+  IrisMode _mode = IrisMode.auto;
+  bool _menuOpen = false;
   late final AnimationController _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200));
+  late final AnimationController _menuC = AnimationController(vsync: this, duration: const Duration(milliseconds: 420), reverseDuration: const Duration(milliseconds: 280));
+  late final AnimationController _spin = AnimationController(vsync: this, duration: const Duration(seconds: 28))..repeat();
+  late final AnimationController _enter = AnimationController(vsync: this, duration: const Duration(milliseconds: 2200))..forward();
+  late final AnimationController _think = AnimationController(vsync: this, duration: const Duration(milliseconds: 1500))..repeat();
+  late final AnimationController _wave = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))..repeat();
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   String get _country {
@@ -54,36 +213,76 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
     return WidgetsBinding.instance.platformDispatcher.locale.countryCode ?? '';
   }
 
+  String get _name => widget.name ?? 'محمود';
+
   @override
   void dispose() {
     _ctrl.dispose();
     _scroll.dispose();
     _pulse.dispose();
+    _menuC.dispose();
+    _spin.dispose();
+    _enter.dispose();
+    _think.dispose();
+    _wave.dispose();
     _liveTimer?.cancel();
+    _recTimer?.cancel();
     super.dispose();
+  }
+
+  void _toggleMenu() {
+    setState(() => _menuOpen = !_menuOpen);
+    _menuOpen ? _menuC.forward() : _menuC.reverse();
+  }
+
+  bool _isWebQ(String t) => RegExp(r'ابحث|دور|اخبار|أخبار|سعر|الطقس|search|news', caseSensitive: false).hasMatch(t);
+
+  Future<void> _deliver(_Msg m, {bool web = false}) async {
+    setState(() => _msgs.add(m));
+    _toBottom();
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
+    setState(() => m.status = 1);
+    await Future.delayed(const Duration(milliseconds: 600));
+    if (!mounted) return;
+    setState(() {
+      m.status = 2;
+      _phase = web ? 'web' : 'thinking';
+    });
+    _toBottom();
+    await Future.delayed(web ? Duration(milliseconds: 1900 * kWebSteps.length + 400) : const Duration(milliseconds: 1500));
+    if (!mounted) return;
+    setState(() {
+      _phase = '';
+      _msgs.add(_Msg(web ? kWebReply : kTestReply, false));
+    });
+    _toBottom();
   }
 
   void _send() {
     final t = _ctrl.text.trim();
     if (t.isEmpty) return;
-    setState(() {
-      _msgs.add(_Msg(t, true));
-      _typing = true;
-    });
     _ctrl.clear();
-    _toBottom();
-    Future.delayed(const Duration(milliseconds: 900), () {
-      if (!mounted) return;
-      setState(() {
-        _typing = false;
-        _msgs.add(_Msg(kTestReply, false));
-      });
-      _toBottom();
+    _deliver(_Msg(t, true), web: _isWebQ(t));
+  }
+
+  void _startRec() {
+    setState(() {
+      _rec = true;
+      _recSec = 0;
     });
+    _recTimer = Timer.periodic(const Duration(seconds: 1), (_) => setState(() => _recSec++));
+  }
+
+  void _stopRec({required bool send}) {
+    _recTimer?.cancel();
+    final s = math.max(_recSec, 1);
+    setState(() => _rec = false);
+    if (send) _deliver(_Msg('', true, voiceSec: s), web: true);
   }
 
   void _toBottom() => Future.delayed(const Duration(milliseconds: 80), () {
-        if (_scroll.hasClients) _scroll.animateTo(_scroll.position.maxScrollExtent + 200, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+        if (_scroll.hasClients && _scroll.position.maxScrollExtent > _scroll.offset + 1) _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
       });
 
   void _toggleLive() {
@@ -119,16 +318,75 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
     }
   }
 
-  Widget _bubble(_Msg m) => Align(
-        alignment: m.me ? Alignment.centerRight : Alignment.centerLeft,
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 6),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-          constraints: const BoxConstraints(maxWidth: 320),
-          decoration: BoxDecoration(color: m.me ? kIrisAccent.withOpacity(.22) : _card, borderRadius: BorderRadius.circular(18), border: Border.all(color: m.me ? kIrisAccent.withOpacity(.5) : Colors.white12)),
-          child: Text(m.text, style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.6)),
-        ),
-      );
+  Widget _voiceBars(int sec, {Color? col}) => Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.play_arrow_rounded, color: col ?? Colors.white, size: 22),
+        for (var i = 0; i < 16; i++)
+          Container(width: 3, height: 5 + 12 * (0.5 + 0.5 * math.sin(i * 1.3 + sec)).abs(), margin: const EdgeInsets.symmetric(horizontal: 1.2), decoration: BoxDecoration(color: (col ?? Colors.white).withOpacity(.75), borderRadius: BorderRadius.circular(2))),
+        const SizedBox(width: 8),
+        Text('${sec ~/ 60}:${(sec % 60).toString().padLeft(2, '0')}', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+      ]);
+
+  Widget _bubble(_Msg m) {
+    if (m.voiceSec != null) return _voiceBubble(m);
+    return Align(
+      alignment: m.me ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 7),
+        constraints: const BoxConstraints(maxWidth: 320),
+        decoration: BoxDecoration(color: m.me ? kIrisAccent.withOpacity(.22) : _card, borderRadius: BorderRadius.circular(18), border: Border.all(color: m.me ? kIrisAccent.withOpacity(.5) : Colors.white12)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Text(m.text, style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.6)),
+          if (m.me) Padding(padding: const EdgeInsets.only(top: 2), child: Ticks(m.status)),
+        ]),
+      ),
+    );
+  }
+
+  // رسالة صوتية: فقاعة صغيرة، وزرار CC جنبها في الناحية الفاضية، والنص بيظهر تحتها
+  Widget _voiceBubble(_Msg m) {
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            GestureDetector(
+              onTap: () => setState(() => m.showText = !m.showText),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                decoration: BoxDecoration(borderRadius: BorderRadius.circular(6), color: m.showText ? kIrisAccent.withOpacity(.18) : Colors.transparent, border: Border.all(color: m.showText ? kIrisAccent : Colors.white38, width: 1.2)),
+                child: Text('CC', style: TextStyle(color: m.showText ? kIrisAccent : Colors.white60, fontSize: 11, fontWeight: FontWeight.w900, height: 1.1)),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.fromLTRB(8, 5, 12, 4),
+              decoration: BoxDecoration(color: kIrisAccent.withOpacity(.22), borderRadius: BorderRadius.circular(16), border: Border.all(color: kIrisAccent.withOpacity(.5))),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                _voiceBars(m.voiceSec!),
+                Ticks(m.status),
+              ]),
+            ),
+          ]),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topRight,
+            child: m.showText
+                ? Container(
+                    margin: const EdgeInsets.only(top: 6),
+                    constraints: const BoxConstraints(maxWidth: 280),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(color: _card, borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.white12)),
+                    child: const Text(kVoiceDemoText, style: TextStyle(color: Colors.white, fontSize: 14, height: 1.5)),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ]),
+      ),
+    );
+  }
 
   Widget _liveBody() {
     return AnimatedBuilder(
@@ -150,7 +408,7 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
             ]),
           ),
           const SizedBox(height: 18),
-          const Text('بسمعك يا محمود...', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
+          Text('بسمعك يا $_name...', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
           const SizedBox(height: 6),
           const Text('الوضع المباشر شكل فقط حالياً، السيرفر لسه متوصلش', style: TextStyle(color: Colors.white54, fontSize: 12.5)),
           const SizedBox(height: 4),
@@ -160,8 +418,210 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
     );
   }
 
+  // اللوجو في نص الشات: باهت جداً قبل أول رسالة وبيلف في الخلفية؛
+  // أول ما التطبيق يفتح بيلف بسرعة وبيكبر شوية وبعدين يهدى
+  Widget _bgLogo(bool dim) {
+    return IgnorePointer(
+      child: Center(
+        child: AnimatedBuilder(
+          animation: Listenable.merge([_spin, _enter]),
+          builder: (_, __) {
+            final e = Curves.easeOutCubic.transform(_enter.value);
+            final angle = 2 * math.pi * (_spin.value + 1.4 * (1 - e));
+            final scale = 0.8 + 0.25 * e;
+            return Opacity(
+              opacity: (dim ? 0.13 : 0.06) + 0.0 * e,
+              child: Transform.scale(scale: scale, child: Transform.rotate(angle: angle, child: const IrisLogo(size: 230))),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _modeButton() {
+    return GestureDetector(
+      onTap: _toggleMenu,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(color: _card, borderRadius: BorderRadius.circular(20), border: Border.all(color: kIrisAccent.withOpacity(.45))),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          const Text('التخصيص', style: TextStyle(color: Colors.white54, fontSize: 11.5)),
+          const SizedBox(width: 7),
+          Text(_modeInfo[_mode]![0], style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w800)),
+          const SizedBox(width: 4),
+          AnimatedBuilder(
+            animation: _menuC,
+            builder: (_, __) => Transform.rotate(angle: math.pi * Curves.easeInOutCubic.transform(_menuC.value), child: const Icon(Icons.keyboard_arrow_down_rounded, color: kIrisAccent, size: 20)),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _modeMenu() {
+    return AnimatedBuilder(
+      animation: _menuC,
+      builder: (_, __) {
+        final t = Curves.easeOutCubic.transform(_menuC.value);
+        if (_menuC.value == 0) return const SizedBox.shrink();
+        return Positioned(
+          top: 56,
+          left: 14,
+          child: Opacity(
+            opacity: t,
+            child: Transform.translate(
+              offset: Offset(0, -10 * (1 - t)),
+              child: Transform.scale(
+                scale: 0.94 + 0.06 * t,
+                alignment: Alignment.topLeft,
+                child: Container(
+                  width: 250,
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  decoration: BoxDecoration(color: const Color(0xFF0E151D), borderRadius: BorderRadius.circular(18), border: Border.all(color: kIrisAccent.withOpacity(.35)), boxShadow: [BoxShadow(color: kIrisAccent.withOpacity(.14 * t), blurRadius: 28)]),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    for (var i = 0; i < IrisMode.values.length; i++)
+                      Opacity(
+                        opacity: Interval(0.1 + i * 0.12, 0.6 + i * 0.12, curve: Curves.easeOut).transform(_menuC.value),
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () {
+                            setState(() => _mode = IrisMode.values[i]);
+                            _toggleMenu();
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                            decoration: BoxDecoration(color: _mode == IrisMode.values[i] ? kIrisAccent.withOpacity(.14) : Colors.transparent, borderRadius: BorderRadius.circular(12)),
+                            child: Row(children: [
+                              Expanded(
+                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  Text(_modeInfo[IrisMode.values[i]]![0], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14)),
+                                  const SizedBox(height: 2),
+                                  Text(_modeInfo[IrisMode.values[i]]![1], style: const TextStyle(color: Colors.white54, fontSize: 11.5)),
+                                ]),
+                              ),
+                              if (_mode == IrisMode.values[i]) const Icon(Icons.check_rounded, color: kIrisAccent, size: 20),
+                            ]),
+                          ),
+                        ),
+                      ),
+                  ]),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _inputRow() {
+    if (_rec) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
+        child: Row(children: [
+          GestureDetector(onTap: () => _stopRec(send: false), child: Container(width: 50, height: 50, decoration: BoxDecoration(color: _card, shape: BoxShape.circle, border: Border.all(color: Colors.white24)), child: const Icon(Icons.delete_outline, color: Colors.white70))),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Container(
+              height: 50,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(color: _card, borderRadius: BorderRadius.circular(25), border: Border.all(color: _live.withOpacity(.6))),
+              child: AnimatedBuilder(
+                animation: _wave,
+                builder: (_, __) => Row(children: [
+                  Icon(Icons.circle, color: _live.withOpacity(.4 + .6 * (0.5 + 0.5 * math.sin(_wave.value * 2 * math.pi))), size: 11),
+                  const SizedBox(width: 8),
+                  Text('${_recSec ~/ 60}:${(_recSec % 60).toString().padLeft(2, '0')}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                      for (var i = 0; i < 26; i++) Container(width: 3, height: 6 + 20 * (0.5 + 0.5 * math.sin(_wave.value * 2 * math.pi + i * .7)).abs(), decoration: BoxDecoration(color: kIrisAccent, borderRadius: BorderRadius.circular(2))),
+                    ]),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(onTap: () => _stopRec(send: true), child: Container(width: 50, height: 50, decoration: const BoxDecoration(color: kIrisAccent, shape: BoxShape.circle), child: const Icon(Icons.arrow_upward, color: Colors.black))),
+        ]),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
+      child: Row(children: [
+        Expanded(
+          child: Container(
+            height: 50,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(color: _card, borderRadius: BorderRadius.circular(25), border: Border.all(color: kIrisAccent.withOpacity(_liveOn ? .15 : .4))),
+            child: Row(children: [
+              Expanded(
+                child: TextField(
+                  controller: _ctrl,
+                  enabled: !_liveOn,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(border: InputBorder.none, hintText: _liveOn ? 'الكتابة متوقفة وقت Live' : 'اكتب هنا...', hintStyle: const TextStyle(color: Colors.white38)),
+                  onSubmitted: (_) => _send(),
+                ),
+              ),
+              GestureDetector(onTap: _liveOn ? null : _send, child: Icon(Icons.arrow_upward, color: _liveOn ? Colors.white24 : kIrisAccent)),
+            ]),
+          ),
+        ),
+        const SizedBox(width: 8),
+        GestureDetector(
+          onTap: _liveOn ? null : _startRec,
+          child: Container(width: 50, height: 50, decoration: BoxDecoration(color: _card, shape: BoxShape.circle, border: Border.all(color: kIrisAccent.withOpacity(_liveOn ? .15 : .6))), child: Icon(Icons.mic_none_rounded, color: _liveOn ? Colors.white24 : kIrisAccent, size: 24)),
+        ),
+        const SizedBox(width: 8),
+        GestureDetector(
+          onTap: _toggleLive,
+          child: Container(
+            height: 50,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              gradient: _liveOn ? const LinearGradient(colors: [Color(0xFFFF5C7A), Color(0xFFFF9F4A)]) : null,
+              color: _liveOn ? null : _card,
+              borderRadius: BorderRadius.circular(25),
+              border: Border.all(color: _liveOn ? Colors.transparent : kIrisAccent.withOpacity(.6)),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(_liveOn ? Icons.stop_rounded : Icons.graphic_eq, color: _liveOn ? Colors.white : kIrisAccent, size: 22),
+              const SizedBox(width: 6),
+              Text(_liveOn ? 'إنهاء' : 'Live', style: TextStyle(color: _liveOn ? Colors.white : kIrisAccent, fontWeight: FontWeight.w900, fontSize: 15)),
+            ]),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _greeting() {
+    return AnimatedBuilder(
+      animation: _enter,
+      builder: (_, __) {
+        final t = Curves.easeOut.transform(((_enter.value - 0.35) / 0.5).clamp(0.0, 1.0));
+        return Opacity(
+          opacity: t,
+          child: Transform.translate(
+            offset: Offset(0, 12 * (1 - t)),
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Text('نورت تاني يا $_name', style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 6),
+              const Text('شات جديد جاهز. اسألني أي حاجة أو اضغط على المايك', style: TextStyle(color: Colors.white54, fontSize: 13.5)),
+            ]),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final empty = _msgs.isEmpty && !_liveOn;
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
@@ -173,77 +633,58 @@ class _IrisHomeState extends State<IrisHome> with TickerProviderStateMixin {
           child: SafeArea(child: SingleChildScrollView(child: MenuList(onSelect: _onMenu))),
         ),
         body: SafeArea(
-          child: Column(children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
-              child: Row(children: [
-                GestureDetector(onTap: () => _scaffoldKey.currentState?.openDrawer(), child: const Icon(Icons.menu, color: Colors.white70)),
-                const SizedBox(width: 12),
-                const IrisLogo(size: 34),
-                const SizedBox(width: 8),
-                const Text('IRIS', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 3)),
-                const Spacer(),
-                if (_liveOn) Row(children: const [Icon(Icons.circle, color: _live, size: 10), SizedBox(width: 5), Text('مباشر', style: TextStyle(color: _live, fontWeight: FontWeight.w800))]),
-              ]),
-            ),
-            const Divider(color: Colors.white12),
-            Expanded(
-              child: _liveOn
-                  ? _liveBody()
-                  : (_msgs.isEmpty
-                      ? Column(mainAxisAlignment: MainAxisAlignment.center, children: const [IrisLogo(size: 90), SizedBox(height: 14), Text('أهلاً يا محمود', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800)), Text('اكتب أي كلمة أو اضغط Live', style: TextStyle(color: Colors.white54))])
-                      : ListView(
-                          controller: _scroll,
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                          children: [
-                            for (final m in _msgs) _bubble(m),
-                            if (_typing) Align(alignment: Alignment.centerLeft, child: Container(margin: const EdgeInsets.only(top: 8), padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: _card, borderRadius: BorderRadius.circular(16)), child: const Text('...', style: TextStyle(color: kIrisAccent, fontSize: 18)))),
-                          ],
-                        )),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
-              child: Row(children: [
-                Expanded(
-                  child: Container(
-                    height: 50,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(color: _card, borderRadius: BorderRadius.circular(25), border: Border.all(color: kIrisAccent.withOpacity(_liveOn ? .15 : .4))),
-                    child: Row(children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _ctrl,
-                          enabled: !_liveOn,
-                          style: const TextStyle(color: Colors.white),
-                          decoration: InputDecoration(border: InputBorder.none, hintText: _liveOn ? 'الكتابة متوقفة وقت Live' : 'اكتب هنا...', hintStyle: const TextStyle(color: Colors.white38)),
-                          onSubmitted: (_) => _send(),
-                        ),
-                      ),
-                      GestureDetector(onTap: _liveOn ? null : _send, child: Icon(Icons.arrow_upward, color: _liveOn ? Colors.white24 : kIrisAccent)),
-                    ]),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                GestureDetector(
-                  onTap: _toggleLive,
-                  child: Container(
-                    height: 50,
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    decoration: BoxDecoration(
-                      gradient: _liveOn ? const LinearGradient(colors: [Color(0xFFFF5C7A), Color(0xFFFF9F4A)]) : null,
-                      color: _liveOn ? null : _card,
-                      borderRadius: BorderRadius.circular(25),
-                      border: Border.all(color: _liveOn ? Colors.transparent : kIrisAccent.withOpacity(.6)),
-                    ),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(_liveOn ? Icons.stop_rounded : Icons.graphic_eq, color: _liveOn ? Colors.white : kIrisAccent, size: 22),
-                      const SizedBox(width: 6),
-                      Text(_liveOn ? 'إنهاء' : 'Live', style: TextStyle(color: _liveOn ? Colors.white : kIrisAccent, fontWeight: FontWeight.w900, fontSize: 15)),
-                    ]),
-                  ),
-                ),
-              ]),
-            ),
+          child: Stack(children: [
+            Column(children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
+                child: Row(children: [
+                  GestureDetector(onTap: () => _scaffoldKey.currentState?.openDrawer(), child: const Icon(Icons.menu, color: Colors.white70)),
+                  const SizedBox(width: 12),
+                  const IrisLogo(size: 30),
+                  const SizedBox(width: 7),
+                  const Text('IRIS', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 3)),
+                  const Spacer(),
+                  if (_liveOn) Row(children: const [Icon(Icons.circle, color: _live, size: 10), SizedBox(width: 5), Text('مباشر', style: TextStyle(color: _live, fontWeight: FontWeight.w800))]) else _modeButton(),
+                ]),
+              ),
+              const Divider(color: Colors.white12),
+              Expanded(
+                child: _liveOn
+                    ? LiveView(onClose: _toggleLive, name: _name)
+                    : Stack(children: [
+                        _bgLogo(empty),
+                        if (empty)
+                          _greeting()
+                        else
+                          ListView(
+                            controller: _scroll,
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            children: [
+                              for (final m in _msgs) _bubble(m),
+                              if (_phase == 'thinking') Align(alignment: Alignment.centerLeft, child: ThinkingChip(anim: _think)),
+                              if (_phase == 'web')
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Container(
+                                    width: 250,
+                                    margin: const EdgeInsets.only(top: 6),
+                                    padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+                                    decoration: BoxDecoration(color: _card.withOpacity(.9), borderRadius: BorderRadius.circular(14), border: Border.all(color: kIrisAccent.withOpacity(.25))),
+                                    child: Row(children: [
+                                      AnimatedBuilder(animation: _think, builder: (_, __) => Transform.rotate(angle: _think.value * 2 * math.pi, child: const IrisLogo(size: 20))),
+                                      const SizedBox(width: 8),
+                                      const Expanded(child: LaserSwapLine(lines: kWebSteps)),
+                                    ]),
+                                  ),
+                                ),
+                            ],
+                          ),
+                      ]),
+              ),
+              _inputRow(),
+            ]),
+            if (_menuOpen) Positioned.fill(child: GestureDetector(behavior: HitTestBehavior.translucent, onTap: _toggleMenu)),
+            _modeMenu(),
           ]),
         ),
       ),
