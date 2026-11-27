@@ -1,10 +1,13 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../main.dart' show AuthGate;
 import 'login_page.dart';
 
-// شاشة البداية: فلاش ضوء أزرق، حلقات HUD بتلف، شبكة خطوط (بلكسس)،
-// وفي الآخر لوجو آيرس يظهر بتوهج مع الاسم، وبعدين تسجيل الدخول.
-// مرجع التصميم: الفيديو اللي محمود بعته (٢٧ نوفمبر) - معاد بناؤه بالكود.
+// شاشة البداية (أول تشغيل بس): نفس فيديو المرجع اللي محمود بعته (٢٧ نوفمبر):
+// فلاش أزرق بخط ضوء أفقي، حلقات HUD متحدة المركز بتلف (تيكس ونقط وأقواس)،
+// زووم جوه الحلقة، شبكة بلكسس بتتجمع، وفي الآخر الشبكة بتلف متصلة بالكامل
+// حوالين علامة لوجو آيرس بخطوط زرقاء-رمادية بدل الأبيض والأسود.
 class IntroSplashScreen extends StatefulWidget {
   const IntroSplashScreen({super.key});
 
@@ -22,7 +25,7 @@ class _IntroSplashScreenState extends State<IntroSplashScreen>
     super.initState();
     _c = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 7000),
+      duration: const Duration(milliseconds: 8000), // نفس طول الفيديو
     )
       ..addStatusListener((s) {
         if (s == AnimationStatus.completed) _goNext();
@@ -30,9 +33,18 @@ class _IntroSplashScreenState extends State<IntroSplashScreen>
       ..forward();
   }
 
+  // نعلّم إن الأنيميشن اتشاف عشان ميظهرش تاني
+  Future<void> _markIntroSeen() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(AuthGate.kIntroSeenKey, true);
+    } catch (_) {}
+  }
+
   void _goNext() {
     if (_navigated || !mounted) return;
     _navigated = true;
+    _markIntroSeen();
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 700),
@@ -67,10 +79,12 @@ class _IntroSplashScreenState extends State<IntroSplashScreen>
         child: AnimatedBuilder(
           animation: _c,
           builder: (context, _) {
-            final flash = _phase(0.0, 0.16);
-            final rings = _phase(0.10, 0.52);
-            final plexus = _phase(0.48, 0.78);
-            final logo = _phase(0.76, 1.0);
+            final flash = _phase(0.0, 0.10);
+            final rings = _phase(0.08, 0.40);
+            final zoom = _phase(0.42, 0.58);
+            final plexus = _phase(0.55, 0.75);
+            final converge = _phase(0.75, 0.92);
+            final logo = _phase(0.82, 1.0);
             final logoCurve = Curves.easeOutBack.transform(logo);
             return Stack(
               fit: StackFit.expand,
@@ -79,9 +93,11 @@ class _IntroSplashScreenState extends State<IntroSplashScreen>
                   painter: IntroPainter(
                     flash: flash,
                     rings: rings,
+                    zoom: zoom,
                     plexus: plexus,
+                    converge: converge,
                     logoGlow: logo,
-                    time: _c.value,
+                    time: _c.value * 8.0, // الزمن بالثواني زي الفيديو
                   ),
                 ),
                 if (logo > 0)
@@ -117,7 +133,7 @@ class _IntroSplashScreenState extends State<IntroSplashScreen>
                                 shape: BoxShape.circle,
                                 boxShadow: [
                                   BoxShadow(
-                                    color: const Color(0xFF4FC3F7)
+                                    color: const Color(0xFF9DB9CE)
                                         .withOpacity(0.45 * logo),
                                     blurRadius: 60,
                                     spreadRadius: 12,
@@ -125,9 +141,18 @@ class _IntroSplashScreenState extends State<IntroSplashScreen>
                                 ],
                               ),
                               child: ClipOval(
-                                child: Image.asset(
-                                  'assets/logo.png',
-                                  fit: BoxFit.cover,
+                                // علامة اللوجو بخطوط زرقاء-رمادية بدل الأبيض
+                                child: ColorFiltered(
+                                  colorFilter: const ColorFilter.matrix([
+                                    0.616, 0, 0, 0, 0, //
+                                    0, 0.725, 0, 0, 0, //
+                                    0, 0, 0.808, 0, 0, //
+                                    0, 0, 0, 1, 0, //
+                                  ]),
+                                  child: Image.asset(
+                                    'assets/logo.png',
+                                    fit: BoxFit.cover,
+                                  ),
                                 ),
                               ),
                             ),
@@ -159,14 +184,18 @@ class _IntroSplashScreenState extends State<IntroSplashScreen>
 class IntroPainter extends CustomPainter {
   final double flash; // 0..1 فلاش البداية
   final double rings; // 0..1 حلقات HUD
+  final double zoom; // 0..1 الزووم جوه الحلقة
   final double plexus; // 0..1 شبكة الخطوط
+  final double converge; // 0..1 تجمّع الشبكة حوالين المركز
   final double logoGlow; // 0..1 توهج تحت اللوجو
-  final double time; // الزمن الكلي للحركة المستمرة
+  final double time; // الزمن بالثواني
 
   IntroPainter({
     required this.flash,
     required this.rings,
+    required this.zoom,
     required this.plexus,
+    required this.converge,
     required this.logoGlow,
     required this.time,
   });
@@ -187,6 +216,21 @@ class IntroPainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height / 2);
     final maxR = size.shortestSide * 0.42;
 
+    // خلفية زرقاء غامقة خفيفة (الڤينييت بتاع الفيديو)
+    final bg = RadialGradient(
+      radius: 1.25,
+      colors: [
+        const Color(0xFF0D2B4D).withOpacity(0.55),
+        Colors.black,
+      ],
+    );
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..shader = bg.createShader(Rect.fromCircle(
+            center: center, radius: size.longestSide * 0.75)),
+    );
+
     // 1) فلاش الضوء الأزرق في البداية
     if (flash > 0 && flash < 1) {
       final flashRadius = size.shortestSide * (0.15 + flash * 0.9);
@@ -202,7 +246,9 @@ class IntroPainter extends CustomPainter {
       canvas.drawCircle(
         center,
         flashRadius,
-        Paint()..shader = gradient.createShader(Rect.fromCircle(center: center, radius: flashRadius)),
+        Paint()
+          ..shader = gradient
+              .createShader(Rect.fromCircle(center: center, radius: flashRadius)),
       );
       // خط ضوء أفقي زي اللي في الفيديو
       final linePaint = Paint()
@@ -216,47 +262,119 @@ class IntroPainter extends CustomPainter {
       );
     }
 
-    // 2) حلقات HUD بتلف (داخلة بحركة)
+    // 2) حلقات HUD متحدة المركز بتلف، وبعدين زووم جواها
     if (rings > 0) {
-      final ringsScale = Curves.easeOutCubic.transform(rings);
-      final ringOpacity = rings.clamp(0.0, 1.0);
-      _drawDashedRing(canvas, center, maxR * 0.45 * ringsScale, 24, 4,
-          time * 2.2, _blue.withOpacity(0.85 * ringOpacity), 2.4);
-      _drawDashedRing(canvas, center, maxR * 0.62 * ringsScale, 30, 3,
-          -time * 1.6, _blue.withOpacity(0.55 * ringOpacity), 1.6);
-      _drawArcs(canvas, center, maxR * 0.82 * ringsScale, time * 1.1,
-          _deepBlue.withOpacity(0.8 * ringOpacity));
-      _drawArcs(canvas, center, maxR * 0.97 * ringsScale, -time * 0.8,
-          _blue.withOpacity(0.35 * ringOpacity));
-      // نقطة مركزية متوهجة
-      canvas.drawCircle(
-        center,
-        4 + 2 * sin(time * 6),
-        Paint()
-          ..color = Colors.white.withOpacity(0.9 * ringOpacity)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
-      );
+      final build = Curves.easeOutCubic.transform(rings);
+      final zoomScale = 1 + 6 * Curves.easeIn.transform(zoom);
+      final fade = (1 - zoom).clamp(0.0, 1.0);
+      final ringOpacity = build * fade;
+
+      if (ringOpacity > 0) {
+        final r = maxR * build * zoomScale;
+        // حلقة خارجية فيها أقواس مضيئة على الأطراف
+        _drawArcs(canvas, center, r * 0.97, time * 0.8,
+            _blue.withOpacity(0.35 * ringOpacity));
+        _drawArcs(canvas, center, r * 0.90, -time * 1.1,
+            _deepBlue.withOpacity(0.8 * ringOpacity));
+        // حلقة التيكس (علامات صغيرة على المحيط) - أوضح حاجة في الفيديو
+        _drawTickRing(canvas, center, r * 0.78, 60, maxR * 0.045,
+            -time * 1.2, _blue.withOpacity(0.8 * ringOpacity), 2.2);
+        // حلقة نقط
+        _drawDotRing(canvas, center, r * 0.66, 40, time * 0.5,
+            _blue.withOpacity(0.5 * ringOpacity));
+        // حلقة متقطعة
+        _drawDashedRing(canvas, center, r * 0.52, 24, 4, time * 2.2,
+            _blue.withOpacity(0.85 * ringOpacity), 2.4);
+        // الحلقة الداخلية المضيئة
+        canvas.drawCircle(
+          center,
+          r * 0.38,
+          Paint()
+            ..color = _blue.withOpacity(0.9 * ringOpacity)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 3
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+        );
+        // نقطة مركزية متوهجة
+        canvas.drawCircle(
+          center,
+          4 + 2 * sin(time * 6),
+          Paint()
+            ..color = Colors.white.withOpacity(0.9 * ringOpacity)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+        );
+      }
+
+      // أثناء الزووم: حلقة صغيرة بعيدة في النص (إحساس النفق)
+      if (zoom > 0 && zoom < 1) {
+        final tunnel = sin(zoom * pi); // تظهر وتختفي نص الزووم
+        canvas.drawCircle(
+          center,
+          maxR * 0.16 * (1 - 0.5 * zoom),
+          Paint()
+            ..color = _blue.withOpacity(0.7 * tunnel)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+        );
+        _drawTickRing(canvas, center, maxR * 0.22 * (1 - 0.4 * zoom), 24,
+            maxR * 0.02, time * 2, _blue.withOpacity(0.5 * tunnel), 1.4);
+      }
     }
 
-    // 3) شبكة البلكسس (نقاط وخطوط زرقاء)
+    // 3) شبكة البلكسس: نقاط وخطوط، وبعدين بتتجمع في دايرة بتلف متصلة كلها ببعض
     if (plexus > 0) {
-      final pts = _plexusPoints
-          .map((p) => Offset(p.dx * size.width, p.dy * size.height))
-          .toList();
-      final linePaint = Paint()
-        ..color = _blue.withOpacity(0.28 * plexus)
-        ..strokeWidth = 1;
-      final maxDist = size.shortestSide * 0.35;
-      for (int i = 0; i < pts.length; i++) {
-        for (int j = i + 1; j < pts.length; j++) {
-          if ((pts[i] - pts[j]).distance < maxDist) {
-            canvas.drawLine(pts[i], pts[j], linePaint);
+      final c = Curves.easeInOut.transform(converge);
+      final n = _plexusPoints.length;
+      final List<Offset> pts = [];
+      for (int i = 0; i < n; i++) {
+        final p = _plexusPoints[i];
+        // موضع حر مع انجراف خفيف
+        final drift = Offset(
+          (p.dx + 0.03 * sin(time * 0.7 + i * 1.7)) * size.width,
+          (p.dy + 0.03 * cos(time * 0.9 + i * 2.3)) * size.height,
+        );
+        // الموضع المستهدف: دايرة منتظمة بتلف حوالين المركز
+        final ang = i * 2 * pi / n + time * 0.45;
+        final target = center +
+            Offset(cos(ang), sin(ang)) * maxR * 0.72;
+        pts.add(Offset.lerp(drift, target, c)!);
+      }
+
+      if (c < 0.999) {
+        // قبل التجمع: توصيل بالمسافة زي البلكسس العادي
+        final linePaint = Paint()
+          ..color = _blue.withOpacity(0.28 * plexus * (1 - c))
+          ..strokeWidth = 1;
+        final maxDist = size.shortestSide * 0.35;
+        for (int i = 0; i < pts.length; i++) {
+          for (int j = i + 1; j < pts.length; j++) {
+            if ((pts[i] - pts[j]).distance < maxDist) {
+              canvas.drawLine(pts[i], pts[j], linePaint);
+            }
           }
         }
       }
+      if (c > 0.001) {
+        // بعد التجمع: كل النقاط متصلة ببعضها بالكامل
+        final fullPaint = Paint()
+          ..color = _blue.withOpacity(0.16 * plexus * c)
+          ..strokeWidth = 0.8;
+        for (int i = 0; i < pts.length; i++) {
+          for (int j = i + 1; j < pts.length; j++) {
+            canvas.drawLine(pts[i], pts[j], fullPaint);
+          }
+        }
+      }
+
       final dotPaint = Paint()..color = _blue.withOpacity(0.7 * plexus);
-      for (final p in pts) {
-        canvas.drawCircle(p, 2, dotPaint);
+      final brightPaint = Paint()
+        ..color = Colors.white.withOpacity(0.9 * plexus * c)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+      for (int i = 0; i < pts.length; i++) {
+        canvas.drawCircle(pts[i], 2, dotPaint);
+        // كل تالت نقطة تبقى مضيئة في مرحلة التجمع
+        if (i % 3 == 0) canvas.drawCircle(pts[i], 3, brightPaint);
       }
     }
 
@@ -264,7 +382,7 @@ class IntroPainter extends CustomPainter {
     if (logoGlow > 0) {
       final glow = RadialGradient(
         colors: [
-          _blue.withOpacity(0.30 * logoGlow),
+          const Color(0xFF9DB9CE).withOpacity(0.30 * logoGlow),
           Colors.transparent,
         ],
       );
@@ -272,7 +390,9 @@ class IntroPainter extends CustomPainter {
       canvas.drawCircle(
         center,
         r,
-        Paint()..shader = glow.createShader(Rect.fromCircle(center: center, radius: r)),
+        Paint()
+          ..shader =
+              glow.createShader(Rect.fromCircle(center: center, radius: r)),
       );
     }
   }
@@ -294,6 +414,32 @@ class IntroPainter extends CustomPainter {
         false,
         paint,
       );
+    }
+  }
+
+  void _drawTickRing(Canvas canvas, Offset center, double radius,
+      int tickCount, double tickLen, double rotation, Color color,
+      double stroke) {
+    if (radius <= 0) return;
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = stroke
+      ..strokeCap = StrokeCap.round;
+    for (int i = 0; i < tickCount; i++) {
+      final a = rotation + i * 2 * pi / tickCount;
+      final p1 = center + Offset(cos(a), sin(a)) * radius;
+      final p2 = center + Offset(cos(a), sin(a)) * (radius + tickLen);
+      canvas.drawLine(p1, p2, paint);
+    }
+  }
+
+  void _drawDotRing(Canvas canvas, Offset center, double radius, int dotCount,
+      double rotation, Color color) {
+    if (radius <= 0) return;
+    final paint = Paint()..color = color;
+    for (int i = 0; i < dotCount; i++) {
+      final a = rotation + i * 2 * pi / dotCount;
+      canvas.drawCircle(center + Offset(cos(a), sin(a)) * radius, 1.4, paint);
     }
   }
 
