@@ -81,15 +81,36 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  void _goNext() {
-    if (!mounted) return;
-    if (_auth.isAdmin()) {
-      Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const AdminUI()));
-    } else {
-      Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const OnboardingUI()));
+  bool _covering =
+      false; // البانيل الأسود بيتمدد يغطي الشاشة قبل الخطوة التالية
+
+  // لو البيانات مش كاملة: مفيش تبديل بانيلات، بس رسالة
+  void _trySignIn() {
+    if (_email.text.trim().isEmpty || _password.text.isEmpty) {
+      setState(() => _error =
+          "You haven't completed your login. Enter your email and password first.");
+      return;
     }
+    _sweepSwap(after: _signInWithEmail);
+  }
+
+  void _tryRegister() {
+    if (_regEmail.text.trim().isEmpty || _regPassword.text.isEmpty) {
+      setState(() => _error =
+          "You haven't completed your details. Fill in your email and password first.");
+      return;
+    }
+    _sweepSwap(after: _register);
+  }
+
+  Future<void> _goNext() async {
+    if (!mounted) return;
+    setState(() => _covering = true);
+    await Future.delayed(const Duration(milliseconds: 780));
+    if (!mounted) return;
+    final Widget next =
+        _auth.isAdmin() ? const AdminUI() : const OnboardingUI();
+    Navigator.of(context).pushReplacement(irisSwapRoute(next));
   }
 
   Future<void> _signInWithEmail() async {
@@ -228,91 +249,126 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          if (isTv)
-            _buildTvLayout(uiScale)
-          else if (isWide)
-            _buildRainLayout(uiScale, isTv)
-          else
-            _buildMobile(uiScale),
+          if (isWide) _buildSplitWide(uiScale, isTv) else _buildMobile(uiScale),
           if (_scanning) _buildScanningOverlay(uiScale),
         ],
       ),
     );
   }
 
-  // ============ تخطيط التلفزيون: كارت متوهج بجزأين + لوجو بيلف ٣٦٠ درجة بنبض أزرق ============
-  // مرجع التصميم: فيديو التلفزيون اللي محمود بعته - البنفسجي بقى أزرق،
-  // والدوامة ورا كلمة Welcome اتبدلت بلوجو آيرس بيدور مع نبض أزرق
-  Widget _buildTvLayout(double uiScale) {
+  // ============ تخطيط اللابتوب/التلفزيون: الشاشة نصين ============
+  // نص أسود بحافة منحنية متوهجة فيه اللوجو وWelcome back (مطر على اللابتوب ونجوم على التلفزيون)،
+  // والنص التاني شبكة أعصاب الشبكية المتحركة والفورم عليها. البانيلين بيبدلوا أماكنهم
+  Widget _buildSplitWide(double uiScale, bool isTv) {
     return LayoutBuilder(
-      builder: (context, constraints) {
-        final half = constraints.maxWidth / 2;
+      builder: (context, c) {
+        final W = c.maxWidth, H = c.maxHeight;
+        final s = isTv ? (W / 1280).clamp(0.6, 2.2).toDouble() : uiScale;
+        final half = W / 2;
+        final apex = W * 0.52;
+        final bulge = min(
+            H * 0.32, W * 0.17); // سهم القوس: كل ما زاد القوس بقى أقرب لدايرة
+        final panelOnLeft = _showRegister == _panelsSwapped;
+        final formW = isTv ? half * 0.66 : min(half * 0.78, 400.0 * uiScale);
+        final formKey = ValueKey(_showRegister ? 'reg' : 'login');
         return Stack(
           fit: StackFit.expand,
           children: [
-            // نجوم متلألئة متوهجة بستايل آيرس في الخلفية (بدل المطر)
-            AnimatedBuilder(
-              animation: _orbitController,
-              builder: (context, _) => CustomPaint(
-                size: constraints.biggest,
-                painter:
-                    _TwinkleStarsPainter(progress: _orbitController.value),
+            // الخلفية: شبكة أعصاب (نقطة الانطلاق عند الحافة المنحنية)
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 700),
+              curve: Curves.easeInOut,
+              left: 0,
+              top: 0,
+              width: W,
+              height: H,
+              child: RetinaNetwork(
+                animation: _rainController,
+                origin: const Offset(0.5, 0.5),
+                spread: panelOnLeft ? 0 : pi,
               ),
             ),
-            // بانيل الترحيب (بيتنقل بين اليمين والشمال)
+            // الفورم
             AnimatedPositioned(
               duration: const Duration(milliseconds: 700),
               curve: Curves.easeInOut,
-              left: (_showRegister != _panelsSwapped) ? 0 : half,
+              left: panelOnLeft ? apex : 0,
               top: 0,
-              width: half,
-              height: constraints.maxHeight,
-              child: _tvWelcomePanel(uiScale),
-            ),
-            // الفورم: نص الشاشة بالكامل بخلفية نصف شفافة
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 700),
-              curve: Curves.easeInOut,
-              left: (_showRegister != _panelsSwapped) ? half : 0,
-              top: 0,
-              width: half,
-              height: constraints.maxHeight,
-              child: Container(
-                color: const Color(0xFF0B0E14).withOpacity(0.82),
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 600),
-                  transitionBuilder: (child, anim) {
-                    final curved = CurvedAnimation(
-                        parent: anim, curve: Curves.easeInOut);
-                    return AnimatedBuilder(
-                      animation: curved,
-                      builder: (_, c) => ImageFiltered(
-                        imageFilter: ui.ImageFilter.blur(
-                          sigmaX: (1 - curved.value) * 8,
-                          sigmaY: (1 - curved.value) * 8,
-                        ),
-                        child:
-                            Opacity(opacity: curved.value, child: c),
-                      ),
-                      child: SlideTransition(
-                        position: Tween<Offset>(
-                          begin: Offset(
-                              _showRegister ? 0.15 : -0.15, 0),
-                          end: Offset.zero,
-                        ).animate(curved),
-                        child: child,
-                      ),
-                    );
-                  },
-                  child: _showRegister
-                      ? _tvRegisterForm(uiScale,
-                          key: const ValueKey('tvreg'))
-                      : _tvLoginForm(uiScale,
-                          key: const ValueKey('tvlogin')),
+              width: W - apex,
+              height: H,
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Container(
+                    width: formW + 48 * s,
+                    padding: EdgeInsets.all(24 * s),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF05080C).withOpacity(0.72),
+                      borderRadius: BorderRadius.circular(26 * s),
+                      border: Border.all(color: kIrisAccent.withOpacity(0.22)),
+                    ),
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 450),
+                      transitionBuilder: (child, anim) =>
+                          FadeTransition(opacity: anim, child: child),
+                      child: isTv
+                          ? (_showRegister
+                              ? _tvRegisterForm(s, key: formKey)
+                              : _tvLoginForm(s, key: formKey))
+                          : (_showRegister
+                              ? _registerForm(uiScale, key: formKey)
+                              : _loginForm(uiScale, key: formKey)),
+                    ),
+                  ),
                 ),
               ),
             ),
-            // مسحة التبديل القطرية
+            // النص الأسود بحافة منحنية
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 700),
+              curve: Curves.easeInOut,
+              left: _covering
+                  ? (panelOnLeft ? 0 : -bulge)
+                  : (panelOnLeft ? 0 : W - apex),
+              top: 0,
+              width: _covering ? W + bulge : apex,
+              height: H,
+              child: CustomPaint(
+                painter: SidePanelPainter(bulgeRight: panelOnLeft, sag: bulge),
+                child: ClipPath(
+                  clipper:
+                      SidePanelClipper(bulgeRight: panelOnLeft, sag: bulge),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      RepaintBoundary(
+                        child: isTv
+                            ? AnimatedBuilder(
+                                animation: _orbitController,
+                                builder: (context, _) => CustomPaint(
+                                  painter: _TwinkleStarsPainter(
+                                      progress: _orbitController.value),
+                                ),
+                              )
+                            : AnimatedBuilder(
+                                animation: _rainController,
+                                builder: (context, _) => CustomPaint(
+                                  painter: RainPainter(
+                                      progress: _rainController.value),
+                                ),
+                              ),
+                      ),
+                      Padding(
+                        padding: EdgeInsets.only(
+                            left: panelOnLeft ? 0 : bulge * 0.6,
+                            right: panelOnLeft ? bulge * 0.6 : 0),
+                        child: _tvWelcomePanel(isTv ? s : s * 1.15),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
             _sweepOverlay(),
           ],
         );
@@ -320,599 +376,806 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     );
   }
 
-  // بانيل الترحيب في التلفزيون: اللوجو بيلف ٣٦٠ درجة مع نبض أزرق
-  Widget _tvWelcomePanel(double uiScale) {
+  // بانيل الترحيب: مدار نجوم + لوجو بيلف ٣٦٠ درجة بنبض أزرق + نص وزرار
+  Widget _tvWelcomePanel(double s) {
     return Container(
-      decoration: BoxDecoration(
-        gradient: RadialGradient(
-          center: Alignment.center,
-          radius: 1.1,
-          colors: [
-            kIrisAccentDeep.withOpacity(0.25),
-            const Color(0xFF0B0E14).withOpacity(0.75),
-          ],
-        ),
-      ),
-      child: Center(
-        child: AnimatedBuilder(
-          animation: _orbitController,
-          builder: (context, _) {
-            final pulse =
-                0.5 + 0.5 * sin(_orbitController.value * 2 * pi);
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 180 * uiScale / 1.2,
-                  height: 180 * uiScale / 1.2,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: kIrisAccent
-                            .withOpacity(0.35 + 0.35 * pulse),
-                        blurRadius: 50 + 30 * pulse,
-                        spreadRadius: 4 + 6 * pulse,
-                      ),
-                    ],
-                  ),
-                  child: RotationTransition(
-                    turns: _orbitController,
-                    child: ClipOval(
-                      child: Image.asset('assets/logo.png',
-                          fit: BoxFit.cover),
-                    ),
-                  ),
-                ),
-                SizedBox(height: 28 * uiScale / 1.2),
-                Text(
-                  'Welcome!',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 30 * uiScale / 1.2,
-                    fontWeight: FontWeight.bold,
-                    shadows: [
-                      Shadow(
-                        color:
-                            kIrisAccent.withOpacity(0.6 + 0.4 * pulse),
-                        blurRadius: 24,
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(height: 10 * uiScale / 1.2),
-                Text(
-                  _showRegister
-                      ? 'Already have an account?\nLog in with your email and password.'
-                      : 'Sign up here to create your account\nand start your journey with I.R.I.S',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: Colors.white60,
-                      fontSize: 13 * uiScale / 1.2,
-                      height: 1.5),
-                ),
-                SizedBox(height: 22 * uiScale / 1.2),
-                SizedBox(
-                  width: 170 * uiScale / 1.2,
-                  height: 46 * uiScale / 1.2,
-                  child: OutlinedButton(
-                    onPressed: () => _sweepSwap(alsoToggleMode: true),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(
-                          color: kIrisAccent, width: 1.6),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(24)),
-                    ),
-                    child: Text(
-                      _showRegister ? 'Login' : 'Sign Up',
-                      style: TextStyle(
-                          color: kIrisAccent,
-                          fontSize: 15 * uiScale / 1.2,
-                          fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _tvLoginForm(double uiScale, {Key? key}) {
-    return Padding(
-      key: key,
-      padding: EdgeInsets.symmetric(
-          horizontal: 44 * uiScale / 1.35, vertical: 28),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text('Welcome Back',
-              style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 24 * uiScale / 1.2,
-                  fontWeight: FontWeight.bold)),
-          SizedBox(height: 4),
-          Text('Sign in to continue your journey with I.R.I.S',
-              style: TextStyle(
-                  color: Colors.white54,
-                  fontSize: 12 * uiScale / 1.2)),
-          if (_error != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.redAccent.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                    color: Colors.redAccent.withOpacity(0.5)),
-              ),
-              child: Text(_error!,
-                  style: const TextStyle(
-                      color: Colors.redAccent, fontSize: 12)),
-            ),
-          ],
-          SizedBox(height: 16 * uiScale / 1.35),
-          _underlineField(
-              controller: _email,
-              label: 'Email',
-              icon: Icons.mail_outline,
-              uiScale: uiScale / 1.2),
-          SizedBox(height: 14 * uiScale / 1.35),
-          _underlineField(
-              controller: _password,
-              label: 'Password',
-              icon: Icons.lock_outline,
-              obscure: true,
-              uiScale: uiScale / 1.2),
-          SizedBox(height: 10),
-          Row(
+      child: AnimatedBuilder(
+        animation: _orbitController,
+        builder: (context, _) {
+          final pulse = 0.5 + 0.5 * sin(_orbitController.value * 2 * pi);
+          return Stack(
+            fit: StackFit.expand,
             children: [
-              SizedBox(
-                width: 22,
-                height: 22,
-                child: Checkbox(
-                  value: _keepSignedIn,
-                  onChanged: (v) =>
-                      setState(() => _keepSignedIn = v ?? true),
-                  activeColor: kIrisAccent,
-                  checkColor: Colors.black,
-                  side: const BorderSide(color: Colors.white38),
-                ),
-              ),
-              const SizedBox(width: 8),
-              const Text('Remember me',
-                  style:
-                      TextStyle(color: Colors.white70, fontSize: 12)),
-              const Spacer(),
-              GestureDetector(
-                onTap: () {},
-                child: const Text('Forgot password?',
-                    style:
-                        TextStyle(color: kIrisAccent, fontSize: 12)),
-              ),
-            ],
-          ),
-          SizedBox(height: 18 * uiScale / 1.35),
-          _glowButton(
-              label: 'Login',
-              uiScale: uiScale / 1.2,
-              onPressed: _busy
-                  ? null
-                  : () => _sweepSwap(after: _signInWithEmail),
-              autofocus: true),
-          const SizedBox(height: 8),
-          Center(
-            child: TextButton.icon(
-              onPressed: _signInWithFace,
-              icon: const Icon(Icons.face_unlock_outlined,
-                  color: kIrisAccent, size: 18),
-              label: const Text('Face scan',
-                  style: TextStyle(color: kIrisAccent, fontSize: 12)),
-            ),
-          ),
-          _orDivider(uiScale / 1.2),
-          const SizedBox(height: 10),
-          _socialRow(uiScale / 1.2),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text('New to I.R.I.S? ',
-                  style:
-                      TextStyle(color: Colors.white54, fontSize: 12)),
-              GestureDetector(
-                onTap: () => _sweepSwap(alsoToggleMode: true),
-                child: const Text('Create an account',
-                    style: TextStyle(
-                        color: kIrisAccent,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700)),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _tvRegisterForm(double uiScale, {Key? key}) {
-    return Padding(
-      key: key,
-      padding: EdgeInsets.symmetric(
-          horizontal: 44 * uiScale / 1.35, vertical: 28),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text('Create Account',
-              style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 24 * uiScale / 1.2,
-                  fontWeight: FontWeight.bold)),
-          SizedBox(height: 4),
-          Text('Join I.R.I.S - your assistant is waiting for you',
-              style: TextStyle(
-                  color: Colors.white54,
-                  fontSize: 12 * uiScale / 1.2)),
-          if (_error != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.redAccent.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                    color: Colors.redAccent.withOpacity(0.5)),
-              ),
-              child: Text(_error!,
-                  style: const TextStyle(
-                      color: Colors.redAccent, fontSize: 12)),
-            ),
-          ],
-          SizedBox(height: 16 * uiScale / 1.35),
-          _underlineField(
-              controller: _regName,
-              label: 'Your Name',
-              icon: Icons.badge_outlined,
-              uiScale: uiScale / 1.2),
-          SizedBox(height: 14 * uiScale / 1.35),
-          _underlineField(
-              controller: _regEmail,
-              label: 'Email',
-              icon: Icons.mail_outline,
-              uiScale: uiScale / 1.2),
-          SizedBox(height: 14 * uiScale / 1.35),
-          _underlineField(
-              controller: _regPassword,
-              label: 'Password',
-              icon: Icons.lock_outline,
-              obscure: true,
-              uiScale: uiScale / 1.2),
-          SizedBox(height: 20 * uiScale / 1.35),
-          _glowButton(
-              label: 'Create My Account',
-              uiScale: uiScale / 1.2,
-              onPressed:
-                  _busy ? null : () => _sweepSwap(after: _register)),
-          const SizedBox(height: 12),
-          _socialRow(uiScale / 1.2),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text('Already have an account? ',
-                  style:
-                      TextStyle(color: Colors.white54, fontSize: 12)),
-              GestureDetector(
-                onTap: () => _sweepSwap(alsoToggleMode: true),
-                child: const Text('Login instead',
-                    style: TextStyle(
-                        color: kIrisAccent,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700)),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ============ تخطيط اللابتوب/التلفزيون: مطر متحرك + فورم أبيض وأسود ============
-  Widget _buildRainLayout(double uiScale, bool isTv) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        // خلفية المطر المتحركة
-        AnimatedBuilder(
-          animation: _rainController,
-          builder: (context, _) => CustomPaint(
-            painter: RainPainter(progress: _rainController.value),
-          ),
-        ),
-        // توهج خفيف في النص
-        Center(
-          child: Container(
-            width: 500 * uiScale,
-            height: 500 * uiScale,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  kIrisAccent.withOpacity(0.07),
-                  Colors.transparent,
-                ],
-              ),
-            ),
-          ),
-        ),
-        // المحتوى: فورم ولوجو بيبدلوا أماكنهم (زي التلفزيون) بالمسحة القطرية
-        LayoutBuilder(
-          builder: (context, lc) {
-            final formOnRight = _showRegister != _panelsSwapped;
-            final formW = lc.maxWidth * 5 / 9;
-            final logoW = lc.maxWidth - formW;
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                AnimatedPositioned(
-                  duration: const Duration(milliseconds: 700),
-                  curve: Curves.easeInOut,
-                  left: formOnRight ? lc.maxWidth - formW : 0,
-                  top: 0,
-                  width: formW,
-                  height: lc.maxHeight,
-                  child: Center(
-                    child: SingleChildScrollView(
-                      padding: EdgeInsets.all(32 * uiScale),
-                      child: ConstrainedBox(
-                        constraints:
-                            BoxConstraints(maxWidth: 380 * uiScale),
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 600),
-                          transitionBuilder: (child, anim) {
-                            final curved = CurvedAnimation(
-                                parent: anim, curve: Curves.easeInOut);
-                            return AnimatedBuilder(
-                              animation: curved,
-                              builder: (_, c) => ImageFiltered(
-                                imageFilter: ui.ImageFilter.blur(
-                                  sigmaX: (1 - curved.value) * 8,
-                                  sigmaY: (1 - curved.value) * 8,
-                                ),
-                                child:
-                                    Opacity(opacity: curved.value, child: c),
-                              ),
-                              child: SlideTransition(
-                                position: Tween<Offset>(
-                                  begin:
-                                      Offset(_showRegister ? 0.12 : -0.12, 0),
-                                  end: Offset.zero,
-                                ).animate(curved),
-                                child: child,
-                              ),
-                            );
-                          },
-                          child: _showRegister
-                              ? _registerForm(uiScale,
-                                  key: const ValueKey('reg'))
-                              : _loginForm(uiScale,
-                                  key: const ValueKey('login')),
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 170 * s,
+                      height: 170 * s,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color:
+                                  kIrisAccent.withOpacity(0.10 + 0.14 * pulse),
+                              blurRadius: (46 + 24 * pulse) * s,
+                              spreadRadius: 0,
+                            ),
+                          ],
+                        ),
+                        child: RotationTransition(
+                          turns: _orbitController,
+                          child: IrisLogo(size: 170 * s),
                         ),
                       ),
                     ),
-                  ),
-                ),
-                // اللوجو والهولوغرام بدل الرسمة
-                AnimatedPositioned(
-                  duration: const Duration(milliseconds: 700),
-                  curve: Curves.easeInOut,
-                  left: formOnRight ? 0 : formW,
-                  top: 0,
-                  width: logoW,
-                  height: lc.maxHeight,
-                  child: Center(
-                    child: AnimatedBuilder(
-                      animation: _rainController,
-                      builder: (context, _) {
-                        final pulse =
-                            0.5 + 0.5 * sin(_rainController.value * 2 * pi);
-                        return Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 220 * uiScale,
-                              height: 220 * uiScale,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: kIrisAccent
-                                        .withOpacity(0.25 + 0.2 * pulse),
-                                    blurRadius: 80,
-                                    spreadRadius: 10,
-                                  ),
-                                ],
-                              ),
-                              child: ClipOval(
-                                child: Image.asset('assets/logo.png',
-                                    fit: BoxFit.cover),
-                              ),
-                            ),
-                            SizedBox(height: 24 * uiScale),
-                            Text(
-                              'I.R.I.S',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 26 * uiScale,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 8 * uiScale,
-                                shadows: [
-                                  Shadow(
-                                    color: kIrisAccent.withOpacity(0.8),
-                                    blurRadius: 20,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            SizedBox(height: 8 * uiScale),
-                            Text(
-                              'Infinity Retinal Intelligence System',
-                              style: TextStyle(
-                                color: Colors.white54,
-                                fontSize: 12 * uiScale,
-                                letterSpacing: 2.5,
-                                fontWeight: FontWeight.w300,
-                              ),
-                            ),
-                          ],
-                        );
-                      },
+                    SizedBox(height: 26 * s),
+                    Text(
+                      _showRegister ? 'Join I.R.I.S' : 'Welcome back',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 26 * s,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.5,
+                      ),
                     ),
-                  ),
+                    SizedBox(height: 10 * s),
+                    SizedBox(
+                      width: 270 * s,
+                      child: Text(
+                        _showRegister
+                            ? 'Already registered? Log in with your email and password to continue.'
+                            : 'New here? Create your account and start your journey with I.R.I.S.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.85),
+                            fontSize: 13.5 * s,
+                            fontWeight: FontWeight.w600,
+                            height: 1.55),
+                      ),
+                    ),
+                    SizedBox(height: 18 * s),
+                    SizedBox(
+                      width: 150 * s,
+                      height: 42 * s,
+                      child: OutlinedButton(
+                        onPressed: () => _sweepSwap(alsoToggleMode: true),
+                        style: OutlinedButton.styleFrom(
+                          side:
+                              const BorderSide(color: Colors.white, width: 1.6),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(24 * s)),
+                        ),
+                        child: Text(
+                          _showRegister ? 'Login' : 'Sign Up',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 14.5 * s,
+                              fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            );
-          },
-        ),
-        // مسحة التبديل القطرية
-        _sweepOverlay(),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _tvTitle(String title, String sub, double s) {
+    return Column(
+      children: [
+        Text(title,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                color: Colors.white,
+                fontSize: 25 * s,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.6)),
+        SizedBox(height: 4 * s),
+        Text(sub,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white60, fontSize: 12 * s)),
       ],
     );
   }
 
-  // ============ تخطيط الموبايل: عمود واحد ============
-  Widget _buildMobile(double uiScale) {
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: ClipOval(
-                child: Image.asset('assets/logo.png',
-                    width: 72 * uiScale, height: 72 * uiScale),
-              ),
-            ),
-            SizedBox(height: 20 * uiScale),
-            Text(
-              'Welcome back',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 28 * uiScale,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            SizedBox(height: 8 * uiScale),
-            Text(
-              'Sign in to continue to I.R.I.S',
-              textAlign: TextAlign.center,
-              style:
-                  TextStyle(color: Colors.white54, fontSize: 14 * uiScale),
-            ),
-            SizedBox(height: 28 * uiScale),
-            _buildField(
-              controller: _email,
-              label: 'Email address',
-              hint: 'name@yourstore.com',
-              obscure: false,
-              icon: Icons.mail_outline,
-              uiScale: uiScale,
-            ),
-            SizedBox(height: 16 * uiScale),
-            _buildField(
-              controller: _password,
-              label: 'Password',
-              hint: '••••••••',
-              obscure: _obscure,
-              icon: Icons.lock_outline,
-              uiScale: uiScale,
-              suffix: IconButton(
-                icon: Icon(
-                  _obscure ? Icons.visibility_off : Icons.visibility,
-                  color: Colors.white38,
-                  size: 20 * uiScale,
-                ),
-                onPressed: () => setState(() => _obscure = !_obscure),
-              ),
-            ),
-            SizedBox(height: 8 * uiScale),
-            Row(
-              children: [
-                SizedBox(
-                  width: 24 * uiScale,
-                  height: 24 * uiScale,
-                  child: Checkbox(
-                    value: _keepSignedIn,
-                    onChanged: (v) =>
-                        setState(() => _keepSignedIn = v ?? true),
-                    activeColor: kIrisAccent,
-                    checkColor: Colors.black,
-                    side: const BorderSide(color: Colors.white38),
+  Widget _tvError(double s) {
+    if (_error == null) return const SizedBox.shrink();
+    return Padding(
+      padding: EdgeInsets.only(top: 8 * s),
+      child: Text(_error!,
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.redAccent, fontSize: 12 * s)),
+    );
+  }
+
+  // حقل التلفزيون: عنوان بحروف كبيرة فوقه، وصندوق بحافة فاتحة وأيقونة في مربع متدرج
+  Widget _tvField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required IconData icon,
+    required double s,
+    bool password = false,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: TextStyle(
+                color: Colors.white70,
+                fontSize: 10.5 * s,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.1)),
+        SizedBox(height: 5 * s),
+        Container(
+          height: 46 * s,
+          decoration: BoxDecoration(
+            color: const Color(0xFF12152A),
+            borderRadius: BorderRadius.circular(14 * s),
+            border:
+                Border.all(color: kIrisAccent.withOpacity(0.55), width: 1.4),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 34 * s,
+                height: 34 * s,
+                margin: EdgeInsets.only(left: 6 * s, right: 10 * s),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(11 * s),
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [kIrisAccent, kIrisAccentDeep],
                   ),
                 ),
-                SizedBox(width: 8 * uiScale),
-                Text('Keep me signed in',
-                    style: TextStyle(
-                        color: Colors.white70, fontSize: 13 * uiScale)),
-                const Spacer(),
-                TextButton(
-                  onPressed: () {},
-                  child: Text('Forgot password?',
-                      style: TextStyle(
-                          color: kIrisAccent, fontSize: 13 * uiScale)),
+                child: Icon(icon, color: Colors.black87, size: 17 * s),
+              ),
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  obscureText: password && _obscure,
+                  style: TextStyle(color: Colors.white, fontSize: 14 * s),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    border: InputBorder.none,
+                    hintText: hint,
+                    hintStyle: TextStyle(
+                        color: Colors.white38,
+                        fontSize: 14 * s,
+                        fontStyle: FontStyle.italic),
+                  ),
                 ),
-              ],
-            ),
-            if (_error != null) ...[
-              SizedBox(height: 8 * uiScale),
-              Text(_error!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: Colors.redAccent, fontSize: 13 * uiScale)),
-            ],
-            SizedBox(height: 16 * uiScale),
-            _primaryButton(
-              label: 'Sign in',
-              uiScale: uiScale,
-              onPressed: _busy ? null : _signInWithEmail,
-            ),
-            SizedBox(height: 12 * uiScale),
-            _faceScanButton(uiScale),
-            SizedBox(height: 24 * uiScale),
-            _orDivider(uiScale),
-            SizedBox(height: 20 * uiScale),
-            _socialRow(uiScale),
-            SizedBox(height: 24 * uiScale),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text("Don't have an account? ",
-                    style: TextStyle(
-                        color: Colors.white54, fontSize: 13 * uiScale)),
+              ),
+              if (password)
                 GestureDetector(
-                  onTap: () {},
-                  child: Text('Register here',
-                      style: TextStyle(
-                          color: kIrisAccent,
-                          fontSize: 13 * uiScale,
-                          fontWeight: FontWeight.w600)),
+                  onTap: () => setState(() => _obscure = !_obscure),
+                  child: Padding(
+                    padding: EdgeInsets.only(right: 12 * s),
+                    child: Icon(
+                        _obscure
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                        color: Colors.white70,
+                        size: 18 * s),
+                  ),
                 ),
-              ],
-            ),
-          ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // زرار متدرج أزرق (بدل البنفسجي-وردي في المرجع)
+  Widget _tvGradButton(String label, double s, VoidCallback? onPressed) {
+    return Container(
+      height: 46 * s,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14 * s),
+        gradient: const LinearGradient(
+            colors: [Color(0xFF3B6A94), Color(0xFF7FA6C6)]),
+        boxShadow: [
+          BoxShadow(
+              color: kIrisAccent.withOpacity(0.4),
+              blurRadius: 18 * s,
+              offset: Offset(0, 6 * s)),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14 * s),
+          onTap: onPressed,
+          child: Center(
+            child: _busy
+                ? SizedBox(
+                    width: 20 * s,
+                    height: 20 * s,
+                    child: const CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
+                : Text(label,
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 15 * s,
+                        fontWeight: FontWeight.w800)),
+          ),
         ),
       ),
     );
   }
 
-  // ============ فورم اللابتوب: حواف سفلية أبيض وأسود ============
+  Widget _tvOrDivider(double s) {
+    return Row(
+      children: [
+        Expanded(child: Divider(color: Colors.white.withOpacity(0.10))),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: 10 * s),
+          child: Text('OR CONTINUE WITH',
+              style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 9.5 * s,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.2)),
+        ),
+        Expanded(child: Divider(color: Colors.white.withOpacity(0.10))),
+      ],
+    );
+  }
+
+  // أزرار المواقع في صف واحد بعرض الفورم: أيقونة الموقع واسمه جنب بعض
+  Widget _wideSocialRow(double s,
+      {bool showLabels = true, bool stacked = false}) {
+    Widget b(IconData icon, String label, Future<void> Function() fn) {
+      return Expanded(
+        child: Container(
+          margin: EdgeInsets.symmetric(horizontal: 3 * s),
+          child: InkWell(
+            onTap: () => _signInSocial(fn),
+            borderRadius: BorderRadius.circular(12 * s),
+            child: Container(
+              height: (stacked ? 54 : 42) * s,
+              decoration: BoxDecoration(
+                color: const Color(0xFF14172B),
+                borderRadius: BorderRadius.circular(12 * s),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: stacked
+                  ? Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        FaIcon(icon, color: Colors.white, size: 18 * s),
+                        SizedBox(height: 4 * s),
+                        Text(label,
+                            style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 9.5 * s,
+                                fontWeight: FontWeight.w700)),
+                      ],
+                    )
+                  : Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        FaIcon(icon, color: Colors.white, size: 16 * s),
+                        if (showLabels) ...[
+                          SizedBox(width: 6 * s),
+                          Flexible(
+                            child: Text(label,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10.5 * s,
+                                    fontWeight: FontWeight.w700)),
+                          ),
+                        ],
+                      ],
+                    ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        b(FontAwesomeIcons.google, 'Google', _auth.signInWithGoogle),
+        b(FontAwesomeIcons.microsoft, 'Microsoft', _auth.signInWithMicrosoft),
+        b(FontAwesomeIcons.apple, 'Apple', _auth.signInWithApple),
+        b(FontAwesomeIcons.github, 'GitHub', _auth.signInWithGitHub),
+      ],
+    );
+  }
+
+  Widget _tvLoginForm(double s, {Key? key}) {
+    return Column(
+      key: key,
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _tvTitle('Welcome Back',
+            'Sign in to continue your journey with I.R.I.S.', s),
+        SizedBox(height: 12 * s),
+        Container(
+          padding: EdgeInsets.all(10 * s),
+          decoration: BoxDecoration(
+            color: kIrisAccentDeep.withOpacity(0.18),
+            borderRadius: BorderRadius.circular(12 * s),
+            border: Border.all(color: kIrisAccent.withOpacity(0.35)),
+          ),
+          child: Text.rich(
+            TextSpan(children: [
+              TextSpan(
+                  text: 'Sign up first, then sign in. ',
+                  style: TextStyle(fontWeight: FontWeight.w800)),
+              TextSpan(
+                  text: 'Use the same email and password you registered with.'),
+            ]),
+            style: TextStyle(
+                color: Colors.white.withOpacity(0.85),
+                fontSize: 10.5 * s,
+                height: 1.45),
+          ),
+        ),
+        _tvError(s),
+        SizedBox(height: 12 * s),
+        _tvField(
+            controller: _email,
+            label: 'EMAIL',
+            hint: 'you@example.com',
+            icon: Icons.mail_outline,
+            s: s),
+        SizedBox(height: 10 * s),
+        _tvField(
+            controller: _password,
+            label: 'PASSWORD',
+            hint: 'Enter your password',
+            icon: Icons.lock_outline,
+            s: s,
+            password: true),
+        SizedBox(height: 10 * s),
+        Row(
+          children: [
+            SizedBox(
+              width: 20 * s,
+              height: 20 * s,
+              child: Checkbox(
+                value: _keepSignedIn,
+                onChanged: (v) => setState(() => _keepSignedIn = v ?? true),
+                activeColor: kIrisAccent,
+                checkColor: Colors.black,
+                side: const BorderSide(color: Colors.white38),
+              ),
+            ),
+            SizedBox(width: 8 * s),
+            Text('Remember me',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 11.5 * s,
+                    fontWeight: FontWeight.w700)),
+            const Spacer(),
+            Text('Forgot password?',
+                style: TextStyle(
+                    color: kIrisAccent,
+                    fontSize: 11.5 * s,
+                    fontWeight: FontWeight.w700)),
+          ],
+        ),
+        SizedBox(height: 10 * s),
+        _tvGradButton('Login to I.R.I.S', s, _busy ? null : () => _trySignIn()),
+        SizedBox(height: 8 * s),
+        Center(
+          child: GestureDetector(
+            onTap: _signInWithFace,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.face_unlock_outlined,
+                    color: kIrisAccent, size: 17 * s),
+                SizedBox(width: 6 * s),
+                Text('Log in with face scan',
+                    style: TextStyle(
+                        color: kIrisAccent,
+                        fontSize: 11.5 * s,
+                        fontWeight: FontWeight.w700)),
+              ],
+            ),
+          ),
+        ),
+        SizedBox(height: 8 * s),
+        _tvOrDivider(s),
+        SizedBox(height: 8 * s),
+        _wideSocialRow(s),
+        SizedBox(height: 12 * s),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('New to I.R.I.S? ',
+                style: TextStyle(color: Colors.white70, fontSize: 11.5 * s)),
+            GestureDetector(
+              onTap: () => _sweepSwap(alsoToggleMode: true),
+              child: Text('Create an account',
+                  style: TextStyle(
+                      color: kIrisAccent,
+                      fontSize: 11.5 * s,
+                      fontWeight: FontWeight.w800)),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _tvRegisterForm(double s, {Key? key}) {
+    return Column(
+      key: key,
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _tvTitle('Create Account',
+            'Join I.R.I.S - your assistant is waiting for you.', s),
+        _tvError(s),
+        SizedBox(height: 14 * s),
+        _tvField(
+            controller: _regName,
+            label: 'YOUR NAME',
+            hint: 'Your full name',
+            icon: Icons.person_outline,
+            s: s),
+        SizedBox(height: 10 * s),
+        _tvField(
+            controller: _regEmail,
+            label: 'EMAIL',
+            hint: 'you@example.com',
+            icon: Icons.mail_outline,
+            s: s),
+        SizedBox(height: 10 * s),
+        _tvField(
+            controller: _regPassword,
+            label: 'PASSWORD',
+            hint: 'Create a password',
+            icon: Icons.lock_outline,
+            s: s,
+            password: true),
+        SizedBox(height: 12 * s),
+        _tvGradButton(
+            'Create My Account', s, _busy ? null : () => _tryRegister()),
+        SizedBox(height: 12 * s),
+        _tvOrDivider(s),
+        SizedBox(height: 8 * s),
+        _wideSocialRow(s),
+        SizedBox(height: 14 * s),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('Already have an account? ',
+                style: TextStyle(color: Colors.white70, fontSize: 11.5 * s)),
+            GestureDetector(
+              onTap: () => _sweepSwap(alsoToggleMode: true),
+              child: Text('Login instead',
+                  style: TextStyle(
+                      color: kIrisAccent,
+                      fontSize: 11.5 * s,
+                      fontWeight: FontWeight.w800)),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // ============ تخطيط الموبايل: نص أسود فوق (لوجو + Welcome back) بحافة منحنية،
+  // ونص تحت فيه شبكة أعصاب الشبكية المتوهجة والمتحركة والفورم عليها ============
+  Widget _buildMobile(double uiScale) {
+    Widget label(String t, {Widget? trailing}) => Padding(
+          padding: EdgeInsets.only(bottom: 6 * uiScale),
+          child: Row(
+            children: [
+              Text(t,
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(0.85),
+                      fontSize: 12.5 * uiScale,
+                      fontWeight: FontWeight.w700)),
+              const Spacer(),
+              if (trailing != null) trailing,
+            ],
+          ),
+        );
+    InputDecoration deco(String hint, IconData icon, {Widget? suffix}) =>
+        InputDecoration(
+          hintText: hint,
+          prefixIcon: Icon(icon,
+              color: kIrisAccent.withOpacity(0.8), size: 20 * uiScale),
+          hintStyle: TextStyle(color: Colors.white30, fontSize: 14 * uiScale),
+          suffixIcon: suffix,
+          filled: true,
+          fillColor: const Color(0xFF0E141B).withOpacity(0.88),
+          isDense: true,
+          contentPadding: EdgeInsets.symmetric(
+              horizontal: 16 * uiScale, vertical: 15 * uiScale),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: kIrisAccent.withOpacity(0.18)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: kIrisAccent.withOpacity(0.18)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: kIrisAccent, width: 1.2),
+          ),
+        );
+    return LayoutBuilder(builder: (context, c) {
+      final headerH = c.maxHeight * 0.40;
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          // شبكة أعصاب الشبكية في الخلفية (النص التحتاني)
+          RetinaNetwork(animation: _rainController),
+          // الفورم
+          Positioned.fill(
+            top: headerH - 6,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 400),
+              opacity: _covering ? 0 : 1,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(18, 22, 18, 14),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF05080C).withOpacity(0.66),
+                    borderRadius: BorderRadius.circular(26),
+                    border: Border.all(color: kIrisAccent.withOpacity(0.2)),
+                    boxShadow: [
+                      BoxShadow(
+                          color: kIrisAccent.withOpacity(0.10), blurRadius: 24),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      label('Email address'),
+                      TextField(
+                        controller: _email,
+                        keyboardType: TextInputType.emailAddress,
+                        style: TextStyle(
+                            color: Colors.white, fontSize: 15 * uiScale),
+                        decoration:
+                            deco('name@example.com', Icons.mail_outline),
+                      ),
+                      SizedBox(height: 12 * uiScale),
+                      label('Password',
+                          trailing: Text('Forgot password?',
+                              style: TextStyle(
+                                  color: kIrisAccent,
+                                  fontSize: 12.5 * uiScale,
+                                  fontWeight: FontWeight.w700))),
+                      TextField(
+                        controller: _password,
+                        obscureText: _obscure,
+                        style: TextStyle(
+                            color: Colors.white, fontSize: 15 * uiScale),
+                        decoration: deco(
+                          '••••••••••',
+                          Icons.lock_outline,
+                          suffix: IconButton(
+                            icon: Icon(
+                              _obscure
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                              color: Colors.white38,
+                              size: 20 * uiScale,
+                            ),
+                            onPressed: () =>
+                                setState(() => _obscure = !_obscure),
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: 8 * uiScale),
+                      Row(
+                        children: [
+                          SizedBox(
+                            width: 22 * uiScale,
+                            height: 22 * uiScale,
+                            child: Checkbox(
+                              value: _keepSignedIn,
+                              onChanged: (v) =>
+                                  setState(() => _keepSignedIn = v ?? true),
+                              activeColor: kIrisAccent,
+                              checkColor: Colors.black,
+                              side: const BorderSide(color: Colors.white38),
+                            ),
+                          ),
+                          SizedBox(width: 10 * uiScale),
+                          Text('Keep me signed in',
+                              style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12.5 * uiScale)),
+                        ],
+                      ),
+                      if (_error != null) ...[
+                        SizedBox(height: 6 * uiScale),
+                        Text(_error!,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                color: Colors.redAccent,
+                                fontSize: 12.5 * uiScale)),
+                      ],
+                      SizedBox(height: 14 * uiScale),
+                      _morphButton(
+                          'Sign in', uiScale, _busy ? null : _signInWithEmail),
+                      SizedBox(height: 10 * uiScale),
+                      _faceScanButton(uiScale, compact: true),
+                      SizedBox(height: 14 * uiScale),
+                      Center(
+                        child: Text('OR CONTINUE WITH',
+                            style: TextStyle(
+                                color: Colors.white54,
+                                fontSize: 10 * uiScale,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.4)),
+                      ),
+                      SizedBox(height: 10 * uiScale),
+                      _wideSocialRow(uiScale, stacked: true),
+                      SizedBox(height: 14 * uiScale),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text("Don't have an account? ",
+                              style: TextStyle(
+                                  color: Colors.white60,
+                                  fontSize: 12.5 * uiScale)),
+                          GestureDetector(
+                            onTap: () {},
+                            child: Text('Register here',
+                                style: TextStyle(
+                                    color: kIrisAccent,
+                                    fontSize: 12.5 * uiScale,
+                                    fontWeight: FontWeight.w700)),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          // النص الأسود فوق: حافة منحنية متوهجة + لوجو + Welcome back
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 750),
+            curve: Curves.easeInOutCubic,
+            top: 0,
+            left: 0,
+            right: 0,
+            height: _covering
+                ? c.maxHeight + CurvedHeaderPainter.sagFor(Size(c.maxWidth, 0))
+                : headerH,
+            child: CustomPaint(
+              painter: const CurvedHeaderPainter(),
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: SizedBox(
+                  height: headerH,
+                  child: SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: EdgeInsets.only(
+                          top: 50 * uiScale, bottom: 30 * uiScale),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.start,
+                        children: [
+                          AnimatedBuilder(
+                            animation: _orbitController,
+                            builder: (context, _) {
+                              final pulse = 0.5 +
+                                  0.5 * sin(_orbitController.value * 2 * pi);
+                              final d = 104 * uiScale;
+                              return DecoratedBox(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: kIrisAccent
+                                          .withOpacity(0.10 + 0.14 * pulse),
+                                      blurRadius: 34 + 14 * pulse,
+                                    ),
+                                  ],
+                                ),
+                                child: RotationTransition(
+                                    turns: _orbitController,
+                                    child: IrisLogo(size: d)),
+                              );
+                            },
+                          ),
+                          SizedBox(height: 34 * uiScale),
+                          Text('Welcome back',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 28 * uiScale,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.4)),
+                          SizedBox(height: 4 * uiScale),
+                          Text('Sign in to your I.R.I.S assistant',
+                              style: TextStyle(
+                                  color: Colors.white60,
+                                  fontSize: 13.5 * uiScale)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    });
+  }
+
+  // زرار تسجيل الدخول: بيتحول لدايرة تحميل لما العملية تشتغل (مرجع: فيديو SLATE الجديد)
+  Widget _morphButton(String label, double uiScale, VoidCallback? onPressed) {
+    final h = 50 * uiScale;
+    return LayoutBuilder(builder: (context, c) {
+      return Center(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 380),
+          curve: Curves.easeInOutCubic,
+          width: _busy ? h : c.maxWidth,
+          height: h,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+                colors: [Color(0xFF7FA6C6), kIrisAccent, Color(0xFFB9D3E4)]),
+            borderRadius: BorderRadius.circular(_busy ? h / 2 : 14),
+            boxShadow: [
+              BoxShadow(
+                  color: kIrisAccent.withOpacity(0.35),
+                  blurRadius: 20,
+                  offset: const Offset(0, 6)),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(_busy ? h / 2 : 14),
+              onTap: onPressed,
+              child: Center(
+                child: _busy
+                    ? SizedBox(
+                        width: h * 0.46,
+                        height: h * 0.46,
+                        child: const CircularProgressIndicator(
+                            strokeWidth: 2.4, color: Colors.black))
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(label,
+                              style: TextStyle(
+                                  color: Colors.black,
+                                  fontSize: 16 * uiScale,
+                                  fontWeight: FontWeight.w800)),
+                          SizedBox(width: 8 * uiScale),
+                          Icon(Icons.arrow_forward_rounded,
+                              color: Colors.black, size: 18 * uiScale),
+                        ],
+                      ),
+              ),
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  // ============ فورم اللابتوب: عنوان صغير فوق + حقول بحافة سفلية + زرار متوهج ============
   Widget _loginForm(double uiScale, {Key? key}) {
     return Column(
       key: key,
@@ -923,15 +1186,15 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             textAlign: TextAlign.center,
             style: TextStyle(
                 color: Colors.white,
-                fontSize: 28 * uiScale,
-                fontWeight: FontWeight.bold)),
-        SizedBox(height: 32 * uiScale),
+                fontSize: 24 * uiScale,
+                fontWeight: FontWeight.w800)),
+        SizedBox(height: 22 * uiScale),
         _underlineField(
             controller: _email,
             label: 'Email *',
             icon: Icons.mail_outline,
             uiScale: uiScale),
-        SizedBox(height: 20 * uiScale),
+        SizedBox(height: 14 * uiScale),
         _underlineField(
             controller: _password,
             label: 'Password *',
@@ -939,45 +1202,43 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             obscure: true,
             uiScale: uiScale),
         if (_error != null) ...[
-          SizedBox(height: 12 * uiScale),
+          SizedBox(height: 10 * uiScale),
           Text(_error!,
               textAlign: TextAlign.center,
-              style: TextStyle(
-                  color: Colors.redAccent, fontSize: 12 * uiScale)),
+              style:
+                  TextStyle(color: Colors.redAccent, fontSize: 12 * uiScale)),
         ],
-        SizedBox(height: 32 * uiScale),
+        SizedBox(height: 26 * uiScale),
         _glowButton(
-            label: 'Sign In',
+            label: 'Sign in',
             uiScale: uiScale,
-            onPressed:
-                _busy ? null : () => _sweepSwap(after: _signInWithEmail),
+            onPressed: _busy ? null : () => _trySignIn(),
             autofocus: true),
-        SizedBox(height: 12 * uiScale),
+        SizedBox(height: 6 * uiScale),
         Center(
           child: TextButton.icon(
             onPressed: _signInWithFace,
             icon: Icon(Icons.face_unlock_outlined,
-                color: kIrisAccent, size: 20 * uiScale),
+                color: kIrisAccent, size: 18 * uiScale),
             label: Text('Face scan',
-                style:
-                    TextStyle(color: kIrisAccent, fontSize: 13 * uiScale)),
+                style: TextStyle(color: kIrisAccent, fontSize: 12 * uiScale)),
           ),
         ),
-        SizedBox(height: 8 * uiScale),
-        _socialRow(uiScale),
-        SizedBox(height: 20 * uiScale),
+        SizedBox(height: 4 * uiScale),
+        _wideSocialRow(uiScale * 0.95, showLabels: false),
+        SizedBox(height: 16 * uiScale),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text('Not registered? ',
-                style: TextStyle(
-                    color: Colors.white54, fontSize: 13 * uiScale)),
+                style:
+                    TextStyle(color: Colors.white70, fontSize: 12.5 * uiScale)),
             GestureDetector(
               onTap: () => _sweepSwap(alsoToggleMode: true),
-              child: Text('Create',
+              child: Text('Create an account',
                   style: TextStyle(
                       color: kIrisAccent,
-                      fontSize: 13 * uiScale,
+                      fontSize: 12.5 * uiScale,
                       fontWeight: FontWeight.w700)),
             ),
           ],
@@ -996,21 +1257,21 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             textAlign: TextAlign.center,
             style: TextStyle(
                 color: Colors.white,
-                fontSize: 28 * uiScale,
-                fontWeight: FontWeight.bold)),
-        SizedBox(height: 28 * uiScale),
+                fontSize: 24 * uiScale,
+                fontWeight: FontWeight.w800)),
+        SizedBox(height: 20 * uiScale),
         _underlineField(
             controller: _regName,
             label: 'Full Name *',
             icon: Icons.badge_outlined,
             uiScale: uiScale),
-        SizedBox(height: 16 * uiScale),
+        SizedBox(height: 12 * uiScale),
         _underlineField(
             controller: _regEmail,
             label: 'Email *',
             icon: Icons.mail_outline,
             uiScale: uiScale),
-        SizedBox(height: 16 * uiScale),
+        SizedBox(height: 12 * uiScale),
         _underlineField(
             controller: _regPassword,
             label: 'Password *',
@@ -1018,32 +1279,32 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             obscure: true,
             uiScale: uiScale),
         if (_error != null) ...[
-          SizedBox(height: 12 * uiScale),
+          SizedBox(height: 10 * uiScale),
           Text(_error!,
               textAlign: TextAlign.center,
-              style: TextStyle(
-                  color: Colors.redAccent, fontSize: 12 * uiScale)),
+              style:
+                  TextStyle(color: Colors.redAccent, fontSize: 12 * uiScale)),
         ],
-        SizedBox(height: 28 * uiScale),
+        SizedBox(height: 24 * uiScale),
         _glowButton(
             label: 'Create',
             uiScale: uiScale,
-            onPressed: _busy ? null : () => _sweepSwap(after: _register)),
+            onPressed: _busy ? null : () => _tryRegister()),
+        SizedBox(height: 14 * uiScale),
+        _wideSocialRow(uiScale * 0.95, showLabels: false),
         SizedBox(height: 16 * uiScale),
-        _socialRow(uiScale),
-        SizedBox(height: 20 * uiScale),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text('Already registered? ',
-                style: TextStyle(
-                    color: Colors.white54, fontSize: 13 * uiScale)),
+                style:
+                    TextStyle(color: Colors.white70, fontSize: 12.5 * uiScale)),
             GestureDetector(
               onTap: () => _sweepSwap(alsoToggleMode: true),
-              child: Text('Sign In',
+              child: Text('Sign in',
                   style: TextStyle(
                       color: kIrisAccent,
-                      fontSize: 13 * uiScale,
+                      fontSize: 12.5 * uiScale,
                       fontWeight: FontWeight.w700)),
             ),
           ],
@@ -1067,8 +1328,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         style: ElevatedButton.styleFrom(
           backgroundColor: kIrisAccent,
           foregroundColor: Colors.black,
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
         child: _busy
             ? const SizedBox(
@@ -1108,8 +1369,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         style: ElevatedButton.styleFrom(
           backgroundColor: kIrisAccent,
           foregroundColor: Colors.black,
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(30)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
         ),
         child: _busy
             ? const SizedBox(
@@ -1135,8 +1396,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             style: TextStyle(color: kIrisAccent, fontSize: 14 * uiScale)),
         style: OutlinedButton.styleFrom(
           side: BorderSide(color: kIrisAccent.withOpacity(0.6), width: 1.4),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
       ),
     );
@@ -1149,8 +1410,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         Padding(
           padding: EdgeInsets.symmetric(horizontal: 12 * uiScale),
           child: Text('or continue with',
-              style: TextStyle(
-                  color: Colors.white38, fontSize: 12 * uiScale)),
+              style: TextStyle(color: Colors.white38, fontSize: 12 * uiScale)),
         ),
         const Expanded(child: Divider(color: Colors.white24)),
       ],
@@ -1203,11 +1463,9 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       style: TextStyle(color: Colors.white, fontSize: 15 * uiScale),
       decoration: InputDecoration(
         labelText: label,
-        labelStyle:
-            TextStyle(color: Colors.white54, fontSize: 14 * uiScale),
+        labelStyle: TextStyle(color: Colors.white54, fontSize: 14 * uiScale),
         floatingLabelStyle: TextStyle(color: kIrisAccent),
-        prefixIcon:
-            Icon(icon, color: Colors.white38, size: 20 * uiScale),
+        prefixIcon: Icon(icon, color: Colors.white38, size: 20 * uiScale),
         enabledBorder: const UnderlineInputBorder(
           borderSide: BorderSide(color: Colors.white38),
         ),
@@ -1231,8 +1489,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
-            style: TextStyle(
-                color: Colors.white70, fontSize: 13 * uiScale)),
+            style: TextStyle(color: Colors.white70, fontSize: 13 * uiScale)),
         SizedBox(height: 6 * uiScale),
         TextField(
           controller: controller,
@@ -1241,8 +1498,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: const TextStyle(color: Colors.white24),
-            prefixIcon:
-                Icon(icon, color: Colors.white38, size: 20 * uiScale),
+            prefixIcon: Icon(icon, color: Colors.white38, size: 20 * uiScale),
             suffixIcon: suffix,
             filled: true,
             fillColor: const Color(0xFF151A1F),
@@ -1252,8 +1508,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
-              borderSide:
-                  const BorderSide(color: kIrisAccent, width: 1.4),
+              borderSide: const BorderSide(color: kIrisAccent, width: 1.4),
             ),
           ),
         ),
@@ -1284,8 +1539,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             FaIcon(icon, color: Colors.white, size: 22 * uiScale),
             SizedBox(height: 4 * uiScale),
             Text(label,
-                style: TextStyle(
-                    color: Colors.white70, fontSize: 11 * uiScale)),
+                style:
+                    TextStyle(color: Colors.white70, fontSize: 11 * uiScale)),
           ],
         ),
       ),
@@ -1374,14 +1629,14 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
               SizedBox(height: 8 * uiScale),
               Text('Verify with your device biometrics (face or fingerprint)',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: Colors.white38, fontSize: 12 * uiScale)),
+                  style:
+                      TextStyle(color: Colors.white38, fontSize: 12 * uiScale)),
               SizedBox(height: 24 * uiScale),
               TextButton(
                 onPressed: () => setState(() => _scanning = false),
                 child: Text('Use password instead',
-                    style: TextStyle(
-                        color: kIrisAccent, fontSize: 14 * uiScale)),
+                    style:
+                        TextStyle(color: kIrisAccent, fontSize: 14 * uiScale)),
               ),
             ] else ...[
               Text(
@@ -1595,9 +1850,8 @@ class _TwinkleStarsPainter extends CustomPainter {
     for (final s in _stars) {
       final tw = 0.5 + 0.5 * sin(2 * pi * (progress * s[4] + s[3]));
       final alpha = 0.25 + 0.75 * tw;
-      final col =
-          Color.lerp(Colors.white, const Color(0xFF9DB9CE), s[5])!
-              .withOpacity(alpha);
+      final col = Color.lerp(Colors.white, const Color(0xFF9DB9CE), s[5])!
+          .withOpacity(alpha);
       final p = Offset(s[0] * size.width, s[1] * size.height);
       // توهج للنجوم الكبيرة
       if (s[2] > 1.8) {
@@ -1634,4 +1888,521 @@ class _DiagonalEdgeClipper extends CustomClipper<Path> {
 
   @override
   bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
+}
+
+// مدار نجوم: قطوع ناقصة مايلة بحبيبات زرقا بتلف حوالين اللوجو (مرجع: المجرة في فيديو التلفزيون)
+class _OrbitPainter extends CustomPainter {
+  final double progress;
+  _OrbitPainter({required this.progress});
+
+  static final List<List<double>> _dots = () {
+    final r = Random(5);
+    return List.generate(
+        70,
+        (_) => [
+              r.nextDouble(), // الطور
+              0.35 + r.nextDouble() * 0.6, // نسبة نصف القطر
+              0.6 + r.nextDouble() * 1.8, // حجم
+              r.nextDouble(), // درجة الزرقة
+            ]);
+  }();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    final rx = size.width * 0.52;
+    final ry = size.height * 0.30;
+    canvas.save();
+    canvas.translate(c.dx, c.dy);
+    canvas.rotate(-0.12);
+    for (final k in [0.55, 0.78, 1.0]) {
+      canvas.drawOval(
+        Rect.fromCenter(
+            center: Offset.zero, width: rx * 2 * k, height: ry * 2 * k),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = kIrisAccent.withOpacity(0.10),
+      );
+    }
+    for (final d in _dots) {
+      final a = 2 * pi * (d[0] + progress * (1.2 - d[1]) * 0.6);
+      final p = Offset(cos(a) * rx * d[1], sin(a) * ry * d[1]);
+      final col = Color.lerp(const Color(0xFF7FD0E8), kIrisAccent, d[3])!;
+      canvas.drawCircle(
+          p,
+          d[2] * 2.4,
+          Paint()
+            ..color = col.withOpacity(0.18)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4));
+      canvas.drawCircle(p, d[2], Paint()..color = col.withOpacity(0.85));
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _OrbitPainter old) => true;
+}
+
+// حافة النص الأسود المنحنية بتوهج أزرق خفيف
+class CurvedHeaderPainter extends CustomPainter {
+  const CurvedHeaderPainter();
+
+  // قوس دايري متماثل ومتمركز: الحواف عند h - sag والمنتصف عند h
+  static double sagFor(Size size) => size.width * 0.30;
+
+  Path _path(Size size) {
+    final w = size.width, h = size.height;
+    final sag = sagFor(size);
+    final r = (w * w / 4 + sag * sag) / (2 * sag);
+    return Path()
+      ..moveTo(0, 0)
+      ..lineTo(w, 0)
+      ..lineTo(w, h - sag)
+      ..arcToPoint(Offset(0, h - sag),
+          radius: Radius.circular(r), clockwise: true)
+      ..close();
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = _path(size);
+    canvas.drawPath(
+        p,
+        Paint()
+          ..color = kIrisAccent.withOpacity(0.55)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10));
+    canvas.drawPath(p, Paint()..color = Colors.black);
+    canvas.drawPath(
+        p,
+        Paint()
+          ..color = kIrisAccent.withOpacity(0.8)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter old) => false;
+}
+
+// شبكة أعصاب الشبكية: أوعية متفرعة بتطلع من نقطة (القرص البصري) وتتفرع
+// بتوهج أزرق، ونبضات ضوء بتجري عليها.
+// الرسم مقسوم لطبقتين: ثابتة (بتتحسب مرة واحدة جوه RepaintBoundary) ونبضات خفيفة متحركة
+class RetinaNervePainter extends CustomPainter {
+  final double progress;
+  final Offset origin; // نقطة الانطلاق (نسبة 0..1)
+  final double spread; // اتجاه التفرع: زاوية المنتصف بالراديان
+  final bool staticLayer; // true = الخلفية والخطوط، false = النبضات بس
+  const RetinaNervePainter({
+    this.progress = 0,
+    this.origin = const Offset(0.5, 0.26),
+    this.spread = pi / 2,
+    this.staticLayer = true,
+  });
+
+  static final Map<String, List<List<Offset>>> _cache = {};
+
+  List<List<Offset>> get _branches {
+    final key = '${origin.dx}_${origin.dy}_$spread';
+    return _cache.putIfAbsent(key, () => _build(origin, spread));
+  }
+
+  static List<List<Offset>> _build(Offset origin, double mid) {
+    final rnd = Random(21);
+    final out = <List<Offset>>[];
+    void grow(Offset start, double angle, double len, int depth) {
+      final pts = <Offset>[start];
+      var a = angle;
+      var p = start;
+      const steps = 9;
+      for (var i = 0; i < steps; i++) {
+        a += (rnd.nextDouble() - 0.5) * 0.45;
+        p = Offset(p.dx + cos(a) * len / steps, p.dy + sin(a) * len / steps);
+        pts.add(p);
+      }
+      out.add(pts);
+      if (depth > 0) {
+        final n = depth > 2 ? 2 : (rnd.nextBool() ? 2 : 1);
+        for (var k = 0; k < n; k++) {
+          final off = (k == 0 ? -1 : 1) * (0.35 + rnd.nextDouble() * 0.5);
+          grow(p, a + off, len * (0.62 + rnd.nextDouble() * 0.2), depth - 1);
+        }
+      }
+    }
+
+    for (var i = 0; i < 7; i++) {
+      final a = mid - 1.3 + 2.6 * i / 6 + (rnd.nextDouble() - 0.5) * 0.1;
+      grow(origin, a, 0.34, 4);
+    }
+    return out;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    Offset m(Offset o) => Offset(o.dx * size.width, o.dy * size.height);
+    if (staticLayer) {
+      canvas.drawRect(
+          Offset.zero & size,
+          Paint()
+            ..shader = const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF0B1118), Color(0xFF05080C)],
+            ).createShader(Offset.zero & size));
+      final glow = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = 4
+        ..color = kIrisAccent.withOpacity(0.18)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+      final line = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = 1.1
+        ..color = kIrisAccent.withOpacity(0.5);
+      for (final pts in _branches) {
+        final path = Path()..moveTo(m(pts[0]).dx, m(pts[0]).dy);
+        for (var i = 1; i < pts.length; i++) {
+          final q = m(pts[i]);
+          final prev = m(pts[i - 1]);
+          path.quadraticBezierTo(
+              prev.dx, prev.dy, (prev.dx + q.dx) / 2, (prev.dy + q.dy) / 2);
+        }
+        canvas.drawPath(path, glow);
+        canvas.drawPath(path, line);
+      }
+      final o = m(origin);
+      final r = size.shortestSide * 0.22;
+      canvas.drawCircle(
+          o,
+          r,
+          Paint()
+            ..shader = RadialGradient(colors: [
+              kIrisAccent.withOpacity(0.25),
+              Colors.transparent,
+            ]).createShader(Rect.fromCircle(center: o, radius: r)));
+      return;
+    }
+    // نبضات الضوء (رخيصة: دواير بس بدون بلور)
+    final branches = _branches;
+    for (var bi = 0; bi < branches.length; bi++) {
+      final pts = branches[bi];
+      final t = (progress + bi * 0.137) % 1.0;
+      final idx = (t * (pts.length - 1)).floor().clamp(0, pts.length - 2);
+      final f = t * (pts.length - 1) - idx;
+      final pos = Offset.lerp(m(pts[idx]), m(pts[idx + 1]), f)!;
+      canvas.drawCircle(
+          pos, 6, Paint()..color = const Color(0xFFBFE3FF).withOpacity(0.18));
+      canvas.drawCircle(
+          pos, 3.2, Paint()..color = const Color(0xFFBFE3FF).withOpacity(0.35));
+      canvas.drawCircle(pos, 1.5, Paint()..color = Colors.white);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant RetinaNervePainter old) =>
+      !staticLayer && old.progress != progress;
+}
+
+// طبقة شبكة الأعصاب الكاملة (ثابتة + نبضات) جاهزة للاستخدام في أي شاشة
+class RetinaNetwork extends StatelessWidget {
+  final Animation<double> animation;
+  final Offset origin;
+  final double spread;
+  const RetinaNetwork(
+      {super.key,
+      required this.animation,
+      this.origin = const Offset(0.5, 0.26),
+      this.spread = pi / 2});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        RepaintBoundary(
+          child: CustomPaint(
+              painter: RetinaNervePainter(origin: origin, spread: spread)),
+        ),
+        RepaintBoundary(
+          child: AnimatedBuilder(
+            animation: animation,
+            builder: (context, _) => CustomPaint(
+              painter: RetinaNervePainter(
+                  progress: animation.value,
+                  origin: origin,
+                  spread: spread,
+                  staticLayer: false),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// حافة النص الأسود الجانبي: قوس دايري حقيقي بينتفخ ناحية الفورم
+// (وتر = ارتفاع الشاشة، وسهم = sag، فكل ما زاد السهم بقى القوس أقرب لدايرة)
+Path _sidePanelPath(Size size, bool bulgeRight, double sag) {
+  final w = size.width, h = size.height;
+  final r = (h * h / 4 + sag * sag) / (2 * sag);
+  final path = Path();
+  if (bulgeRight) {
+    final edge = w - sag;
+    path
+      ..moveTo(0, 0)
+      ..lineTo(edge, 0)
+      ..arcToPoint(Offset(edge, h), radius: Radius.circular(r), clockwise: true)
+      ..lineTo(0, h)
+      ..close();
+  } else {
+    final x0 = sag;
+    path
+      ..moveTo(w, 0)
+      ..lineTo(x0, 0)
+      ..arcToPoint(Offset(x0, h), radius: Radius.circular(r), clockwise: false)
+      ..lineTo(w, h)
+      ..close();
+  }
+  return path;
+}
+
+class SidePanelClipper extends CustomClipper<Path> {
+  final bool bulgeRight;
+  final double sag;
+  const SidePanelClipper({required this.bulgeRight, required this.sag});
+  @override
+  Path getClip(Size size) => _sidePanelPath(size, bulgeRight, sag);
+  @override
+  bool shouldReclip(covariant SidePanelClipper old) =>
+      old.bulgeRight != bulgeRight || old.sag != sag;
+}
+
+class SidePanelPainter extends CustomPainter {
+  final bool bulgeRight;
+  final double sag;
+  const SidePanelPainter({required this.bulgeRight, required this.sag});
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = _sidePanelPath(size, bulgeRight, sag);
+    canvas.drawPath(
+        p,
+        Paint()
+          ..color = kIrisAccent.withOpacity(0.5)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10));
+    canvas.drawPath(p, Paint()..color = Colors.black);
+    canvas.drawPath(
+        p,
+        Paint()
+          ..color = kIrisAccent.withOpacity(0.75)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2);
+  }
+
+  @override
+  bool shouldRepaint(covariant SidePanelPainter old) =>
+      old.bulgeRight != bulgeRight || old.sag != sag;
+}
+
+// لوجو آيرس: الأصل 1024px واللوجو نفسه بياخد حوالي ثلثين الصورة، فبنكبّره جوه الدايرة
+// عشان يملا المساحة بحدة عالية (من غير فلتر أو طبقة تعتيم فوقه)
+class IrisLogo extends StatelessWidget {
+  final double size;
+  const IrisLogo({super.key, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: ClipOval(
+        child: Transform.scale(
+          scale: 1.42,
+          child: Image.asset(
+            'assets/logo.png',
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            filterQuality: FilterQuality.high,
+            isAntiAlias: true,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// انتقال التبديل: البانيل الأسود (اللي غطى الشاشة) بينسحب للناحية التانية
+// (تحت في الموبايل / يمين في اللابتوب والتلفزيون) ويكشف الخطوة اللي بعده
+Route<void> irisSwapRoute(Widget next) {
+  return PageRouteBuilder<void>(
+    transitionDuration: const Duration(milliseconds: 760),
+    pageBuilder: (_, __, ___) => next,
+    transitionsBuilder: (ctx, anim, __, child) {
+      final size = MediaQuery.of(ctx).size;
+      final wide = size.width >= 700;
+      return AnimatedBuilder(
+        animation: anim,
+        child: child,
+        builder: (_, ch) {
+          final t = Curves.easeInOutCubic.transform(anim.value);
+          final logoOp = (1 - t * 2.2).clamp(0.0, 1.0);
+          Widget overlay;
+          if (wide) {
+            final sag = min(size.height * 0.32, size.width * 0.17);
+            final w = (size.width + sag) * (1 - t);
+            overlay = Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              width: w,
+              child: CustomPaint(
+                painter: SidePanelPainter(bulgeRight: false, sag: sag),
+                child: Center(
+                    child:
+                        Opacity(opacity: logoOp, child: IrisLogo(size: 150))),
+              ),
+            );
+          } else {
+            final sag = size.width * 0.30;
+            final h = (size.height + sag) * (1 - t);
+            overlay = Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: h,
+              child: Stack(fit: StackFit.expand, children: [
+                Transform.flip(
+                    flipY: true,
+                    child: CustomPaint(painter: const CurvedHeaderPainter())),
+                Align(
+                    alignment: const Alignment(0, 0),
+                    child:
+                        Opacity(opacity: logoOp, child: IrisLogo(size: 104))),
+              ]),
+            );
+          }
+          return Stack(fit: StackFit.expand, children: [
+            ch!,
+            if (anim.value < 1) overlay,
+          ]);
+        },
+      );
+    },
+  );
+}
+
+// ستارة آيرس: شاشة سودا كاملة + لوجو كبير في النص، وبعدين الستارة بتتشال بحافة
+// مائلة (قطرية) من تحت لفوق وتكشف الشاشة الرئيسية
+Route<void> irisCurtainRoute(Widget next) {
+  return PageRouteBuilder<void>(
+    transitionDuration: const Duration(milliseconds: 2300),
+    pageBuilder: (_, __, ___) => next,
+    transitionsBuilder: (ctx, anim, __, child) {
+      final size = MediaQuery.of(ctx).size;
+      final wide = size.width >= 700;
+      return AnimatedBuilder(
+        animation: anim,
+        child: child,
+        builder: (_, ch) {
+          final v = anim.value;
+          // 0..0.38 اللوجو يظهر ويكبر، 0.55..1 الستارة تتشال
+          final appear =
+              Curves.easeOutCubic.transform((v / 0.38).clamp(0.0, 1.0));
+          final lift = Curves.easeInOutCubic
+              .transform(((v - 0.55) / 0.45).clamp(0.0, 1.0));
+          final d = (wide ? 260.0 : 200.0);
+          return Stack(fit: StackFit.expand, children: [
+            ch!,
+            if (v < 1)
+              IgnorePointer(
+                child: ClipPath(
+                  clipper: _CurtainClipper(lift),
+                  child: ColoredBox(
+                    color: Colors.black,
+                    child: Center(
+                      child: Opacity(
+                        opacity: appear,
+                        child: Transform.scale(
+                          scale: 0.7 + 0.3 * appear + 0.08 * lift,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                    color:
+                                        kIrisAccent.withOpacity(0.28 * appear),
+                                    blurRadius: 70),
+                              ],
+                            ),
+                            child: IrisLogo(size: d),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            if (v < 1 && lift > 0)
+              IgnorePointer(
+                  child: CustomPaint(painter: _CurtainEdgePainter(lift))),
+          ]);
+        },
+      );
+    },
+  );
+}
+
+// خط الحافة المائلة: بيتحرك من تحت لفوق (lift 0 = الشاشة متغطية كلها)
+List<Offset> _curtainLine(Size s, double lift) {
+  final slant = s.height * 0.22;
+  final base = (1 - lift) * (s.height + slant);
+  return [Offset(0, base - slant), Offset(s.width, base)];
+}
+
+class _CurtainClipper extends CustomClipper<Path> {
+  final double lift;
+  const _CurtainClipper(this.lift);
+  @override
+  Path getClip(Size s) {
+    final l = _curtainLine(s, lift);
+    return Path()
+      ..moveTo(0, 0)
+      ..lineTo(s.width, 0)
+      ..lineTo(s.width, l[1].dy)
+      ..lineTo(0, l[0].dy)
+      ..close();
+  }
+
+  @override
+  bool shouldReclip(covariant _CurtainClipper old) => old.lift != lift;
+}
+
+class _CurtainEdgePainter extends CustomPainter {
+  final double lift;
+  const _CurtainEdgePainter(this.lift);
+  @override
+  void paint(Canvas canvas, Size s) {
+    final l = _curtainLine(s, lift);
+    canvas.drawLine(
+        l[0],
+        l[1],
+        Paint()
+          ..color = kIrisAccent.withOpacity(0.7)
+          ..strokeWidth = 3
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12));
+    canvas.drawLine(
+        l[0],
+        l[1],
+        Paint()
+          ..color = kIrisAccent
+          ..strokeWidth = 1.4);
+  }
+
+  @override
+  bool shouldRepaint(covariant _CurtainEdgePainter old) => old.lift != lift;
 }
