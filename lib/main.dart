@@ -78,7 +78,7 @@ class AuthGate extends StatelessWidget {
   Widget build(BuildContext context) {
     final auth = AuthService();
     if (auth.isSignedIn) {
-      return auth.isAdmin() ? const AdminUI() : const IrisHome();
+      return const IrisHome();
     }
     // وضع الاختبار: الأنيميشن بيظهر كل تشغيل. لما محمود يثبت الشكل النهائي
     // نرجع kIntroFirstLaunchOnly = true فيشتغل أول مرة بس
