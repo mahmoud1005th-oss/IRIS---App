@@ -187,92 +187,77 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   // مرجع التصميم: فيديو التلفزيون اللي محمود بعته - البنفسجي بقى أزرق،
   // والدوامة ورا كلمة Welcome اتبدلت بلوجو آيرس بيدور مع نبض أزرق
   Widget _buildTvLayout(double uiScale) {
-    final double cardW = 1150 * uiScale / 1.35;
-    final double cardH = 640 * uiScale / 1.35;
-
-    return Center(
-      child: Container(
-        width: cardW,
-        height: cardH,
-        decoration: BoxDecoration(
-          color: const Color(0xFF0B0E14),
-          borderRadius: BorderRadius.circular(28),
-          border: Border.all(color: kIrisAccent.withOpacity(0.5), width: 1.4),
-          boxShadow: [
-            BoxShadow(
-              color: kIrisAccent.withOpacity(0.35),
-              blurRadius: 70,
-              spreadRadius: 2,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final half = constraints.maxWidth / 2;
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            // نجوم متلألئة متوهجة بستايل آيرس في الخلفية (بدل المطر)
+            AnimatedBuilder(
+              animation: _orbitController,
+              builder: (context, _) => CustomPaint(
+                size: constraints.biggest,
+                painter:
+                    _TwinkleStarsPainter(progress: _orbitController.value),
+              ),
+            ),
+            // بانيل الترحيب (بيتنقل بين اليمين والشمال)
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 700),
+              curve: Curves.easeInOut,
+              left: _showRegister ? 0 : half,
+              top: 0,
+              width: half,
+              height: constraints.maxHeight,
+              child: _tvWelcomePanel(uiScale),
+            ),
+            // الفورم: نص الشاشة بالكامل بخلفية نصف شفافة
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 700),
+              curve: Curves.easeInOut,
+              left: _showRegister ? half : 0,
+              top: 0,
+              width: half,
+              height: constraints.maxHeight,
+              child: Container(
+                color: const Color(0xFF0B0E14).withOpacity(0.82),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 600),
+                  transitionBuilder: (child, anim) {
+                    final curved = CurvedAnimation(
+                        parent: anim, curve: Curves.easeInOut);
+                    return AnimatedBuilder(
+                      animation: curved,
+                      builder: (_, c) => ImageFiltered(
+                        imageFilter: ui.ImageFilter.blur(
+                          sigmaX: (1 - curved.value) * 8,
+                          sigmaY: (1 - curved.value) * 8,
+                        ),
+                        child:
+                            Opacity(opacity: curved.value, child: c),
+                      ),
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: Offset(
+                              _showRegister ? 0.15 : -0.15, 0),
+                          end: Offset.zero,
+                        ).animate(curved),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: _showRegister
+                      ? _tvRegisterForm(uiScale,
+                          key: const ValueKey('tvreg'))
+                      : _tvLoginForm(uiScale,
+                          key: const ValueKey('tvlogin')),
+                ),
+              ),
             ),
           ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(28),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final half = constraints.maxWidth / 2;
-              return Stack(
-                children: [
-                  // نجوم خفيفة في الخلفية
-                  CustomPaint(
-                      size: constraints.biggest,
-                      painter: _StarsPainter()),
-                  // بانيل الترحيب (بيتنقل بين اليمين والشمال)
-                  AnimatedPositioned(
-                    duration: const Duration(milliseconds: 700),
-                    curve: Curves.easeInOut,
-                    left: _showRegister ? 0 : half,
-                    top: 0,
-                    width: half,
-                    height: constraints.maxHeight,
-                    child: _tvWelcomePanel(uiScale),
-                  ),
-                  // الفورم
-                  AnimatedPositioned(
-                    duration: const Duration(milliseconds: 700),
-                    curve: Curves.easeInOut,
-                    left: _showRegister ? half : 0,
-                    top: 0,
-                    width: half,
-                    height: constraints.maxHeight,
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 600),
-                      transitionBuilder: (child, anim) {
-                        final curved = CurvedAnimation(
-                            parent: anim, curve: Curves.easeInOut);
-                        return AnimatedBuilder(
-                          animation: curved,
-                          builder: (_, c) => ImageFiltered(
-                            imageFilter: ui.ImageFilter.blur(
-                              sigmaX: (1 - curved.value) * 8,
-                              sigmaY: (1 - curved.value) * 8,
-                            ),
-                            child:
-                                Opacity(opacity: curved.value, child: c),
-                          ),
-                          child: SlideTransition(
-                            position: Tween<Offset>(
-                              begin: Offset(
-                                  _showRegister ? 0.15 : -0.15, 0),
-                              end: Offset.zero,
-                            ).animate(curved),
-                            child: child,
-                          ),
-                        );
-                      },
-                      child: _showRegister
-                          ? _tvRegisterForm(uiScale,
-                              key: const ValueKey('tvreg'))
-                          : _tvLoginForm(uiScale,
-                              key: const ValueKey('tvlogin')),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -284,8 +269,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           center: Alignment.center,
           radius: 1.1,
           colors: [
-            kIrisAccentDeep.withOpacity(0.22),
-            const Color(0xFF0B0E14),
+            kIrisAccentDeep.withOpacity(0.25),
+            const Color(0xFF0B0E14).withOpacity(0.75),
           ],
         ),
       ),
@@ -1404,4 +1389,55 @@ class FaceScanPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant FaceScanPainter oldDelegate) => true;
+}
+
+// نجوم متلألئة متوهجة بستايل آيرس - خلفية شاشة التلفزيون
+class _TwinkleStarsPainter extends CustomPainter {
+  final double progress;
+  _TwinkleStarsPainter({required this.progress});
+
+  static const int _count = 140;
+  static final List<List<double>> _stars = _build();
+
+  // كل نجمة: x، y، حجم، طور الوميض، سرعته، درجة الزرقة
+  static List<List<double>> _build() {
+    final rnd = Random(11);
+    return List.generate(
+      _count,
+      (_) => [
+        rnd.nextDouble(),
+        rnd.nextDouble(),
+        0.6 + rnd.nextDouble() * 1.8,
+        rnd.nextDouble(),
+        0.5 + rnd.nextDouble(),
+        rnd.nextDouble(),
+      ],
+    );
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final s in _stars) {
+      final tw = 0.5 + 0.5 * sin(2 * pi * (progress * s[4] + s[3]));
+      final alpha = 0.25 + 0.75 * tw;
+      final col =
+          Color.lerp(Colors.white, const Color(0xFF9DB9CE), s[5])!
+              .withOpacity(alpha);
+      final p = Offset(s[0] * size.width, s[1] * size.height);
+      // توهج للنجوم الكبيرة
+      if (s[2] > 1.8) {
+        canvas.drawCircle(
+          p,
+          s[2] * 3,
+          Paint()
+            ..color = col.withOpacity(0.25)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+        );
+      }
+      canvas.drawCircle(p, s[2], Paint()..color = col);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _TwinkleStarsPainter oldDelegate) => true;
 }
