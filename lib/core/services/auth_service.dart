@@ -1,8 +1,11 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 // محمود هيحط رابط Supabase والمفتاح هنا
-const String supabaseUrl = 'https://YOUR_SUPABASE_URL.supabase.co';
-const String supabaseAnonKey = 'YOUR_SUPABASE_ANON_KEY';
+const String supabaseUrl = 'https://dqvmuemvfngpfjkptvjr.supabase.co';
+const String supabaseAnonKey = 'sb_publishable_NZT67s5FuSLmvr70TGKefw_UFpxip0x';
+
+// الرابط اللي المتصفح بيرجّع بيه المستخدم للتطبيق بعد الدخول بجوجل/جيت هاب
+const String kAuthRedirect = 'iris://login-callback';
 
 bool get supabaseConfigured =>
     !supabaseUrl.contains('YOUR_') && !supabaseAnonKey.contains('YOUR_');
@@ -22,25 +25,25 @@ class AuthService {
   Future<void> signInWithGoogle() async {
     final auth = _auth;
     if (auth == null) return;
-    await auth.signInWithOAuth(OAuthProvider.google);
+    await auth.signInWithOAuth(OAuthProvider.google, redirectTo: kAuthRedirect);
   }
 
   Future<void> signInWithMicrosoft() async {
     final auth = _auth;
     if (auth == null) return;
-    await auth.signInWithOAuth(OAuthProvider.azure);
+    await auth.signInWithOAuth(OAuthProvider.azure, redirectTo: kAuthRedirect);
   }
 
   Future<void> signInWithApple() async {
     final auth = _auth;
     if (auth == null) return;
-    await auth.signInWithOAuth(OAuthProvider.apple);
+    await auth.signInWithOAuth(OAuthProvider.apple, redirectTo: kAuthRedirect);
   }
 
   Future<void> signInWithGitHub() async {
     final auth = _auth;
     if (auth == null) return;
-    await auth.signInWithOAuth(OAuthProvider.github);
+    await auth.signInWithOAuth(OAuthProvider.github, redirectTo: kAuthRedirect);
   }
 
   // تسجيل بالإيميل والباسورد - بيرجع true لو نجح
@@ -63,6 +66,24 @@ class AuthService {
     try {
       final res = await auth.signUp(email: email, password: password);
       return res.user != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> signOut() async {
+    try {
+      await _auth?.signOut();
+    } catch (_) {}
+  }
+
+  // إعادة تعيين كلمة السر بالإيميل. بيرجع false لو السيرفر مش متوصل
+  Future<bool> sendPasswordReset(String email) async {
+    final auth = _auth;
+    if (auth == null) return false;
+    try {
+      await auth.resetPasswordForEmail(email, redirectTo: kAuthRedirect);
+      return true;
     } catch (_) {
       return false;
     }
