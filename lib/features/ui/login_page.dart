@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'fingerprint_step.dart';
+import 'brand_logos.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../core/services/auth_service.dart';
 import 'onboarding_ui.dart';
@@ -182,7 +183,26 @@ class _LoginPageState extends State<LoginPage>
     try {
       final p = await SharedPreferences.getInstance();
       await p.setString('iris_user_email', e.trim());
+      if (_showRegister && _regName.text.trim().isNotEmpty) {
+        await p.setString('iris_user_name', _regName.text.trim());
+      }
     } catch (_) {}
+  }
+
+  Future<void> _forgotPassword() async {
+    final e = _email.text.trim();
+    String msg;
+    if (e.isEmpty || !e.contains('@')) {
+      msg = 'Enter your email first';
+    } else if (!supabaseConfigured) {
+      msg = 'Demo mode: reset emails start working once the server is connected';
+    } else {
+      final ok = await _auth.sendPasswordReset(e);
+      msg = ok ? 'Reset link sent to $e' : 'Could not send the reset link';
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 3)));
   }
 
   Future<void> _signInWithEmail() async {
@@ -739,7 +759,7 @@ class _LoginPageState extends State<LoginPage>
                   ? Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        FaIcon(icon, color: Colors.white, size: 18 * s),
+                        brandIcon(icon, 18 * s),
                         SizedBox(height: 4 * s),
                         Text(label,
                             style: TextStyle(
@@ -751,7 +771,7 @@ class _LoginPageState extends State<LoginPage>
                   : Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        FaIcon(icon, color: Colors.white, size: 16 * s),
+                        brandIcon(icon, 16 * s),
                         if (showLabels) ...[
                           SizedBox(width: 6 * s),
                           Flexible(
@@ -848,11 +868,14 @@ class _LoginPageState extends State<LoginPage>
                     fontSize: 11.5 * s,
                     fontWeight: FontWeight.w700)),
             const Spacer(),
-            Text('Forgot password?',
-                style: TextStyle(
-                    color: kIrisAccent,
-                    fontSize: 11.5 * s,
-                    fontWeight: FontWeight.w700)),
+            GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _forgotPassword,
+                child: Text('Forgot password?',
+                    style: TextStyle(
+                        color: kIrisAccent,
+                        fontSize: 11.5 * s,
+                        fontWeight: FontWeight.w700))),
           ],
         ),
         SizedBox(height: 10 * s),
@@ -1017,6 +1040,61 @@ class _LoginPageState extends State<LoginPage>
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      if (_showRegister) ...[
+                        label('Full name'),
+                        _Rise(delayMs: 0, child: TextField(
+                          controller: _regName,
+                          scrollPadding: EdgeInsets.zero,
+                          style: TextStyle(color: Colors.white, fontSize: 15 * uiScale),
+                          decoration: deco('Your name', Icons.badge_outlined),
+                        )),
+                        SizedBox(height: 12 * uiScale),
+                        label('Email address'),
+                        TextField(
+                          controller: _regEmail,
+                          scrollPadding: EdgeInsets.zero,
+                          keyboardType: TextInputType.emailAddress,
+                          style: TextStyle(color: Colors.white, fontSize: 15 * uiScale),
+                          decoration: deco('name@example.com', Icons.mail_outline),
+                        ),
+                        _missingMsg(_regEmail, uiScale),
+                        SizedBox(height: 12 * uiScale),
+                        label('Password'),
+                        _Rise(delayMs: 160, child: TextField(
+                          controller: _regPassword,
+                          scrollPadding: EdgeInsets.zero,
+                          obscureText: true,
+                          style: TextStyle(color: Colors.white, fontSize: 15 * uiScale),
+                          decoration: deco('••••••••••', Icons.lock_outline),
+                        )),
+                        _missingMsg(_regPassword, uiScale),
+                        if (_error != null) ...[
+                          SizedBox(height: 6 * uiScale),
+                          Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: Colors.redAccent, fontSize: 12.5 * uiScale)),
+                        ],
+                        SizedBox(height: 14 * uiScale),
+                        _morphButton('Create account', uiScale, _busy ? null : _tryRegister),
+                        SizedBox(height: 14 * uiScale),
+                        _wideSocialRow(uiScale, stacked: true),
+                        SizedBox(height: 14 * uiScale),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text('Already registered? ', style: TextStyle(color: Colors.white60, fontSize: 12.5 * uiScale)),
+                            GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () => setState(() {
+                                _showRegister = false;
+                                _error = null;
+                              }),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                child: Text('Sign in', style: TextStyle(color: kIrisAccent, fontSize: 12.5 * uiScale, fontWeight: FontWeight.w700)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ] else ...[
                       label('Email address'),
                       TextField(
                         controller: _email,
@@ -1035,11 +1113,17 @@ class _LoginPageState extends State<LoginPage>
                       _missingMsg(_email, uiScale),
                       SizedBox(height: 12 * uiScale),
                       label('Password',
-                          trailing: Text('Forgot password?',
-                              style: TextStyle(
-                                  color: kIrisAccent,
-                                  fontSize: 12.5 * uiScale,
-                                  fontWeight: FontWeight.w700))),
+                          trailing: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: _forgotPassword,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                child: Text('Forgot password?',
+                                    style: TextStyle(
+                                        color: kIrisAccent,
+                                        fontSize: 12.5 * uiScale,
+                                        fontWeight: FontWeight.w700)),
+                              ))),
                       TextField(
                         controller: _password,
                         scrollPadding: EdgeInsets.zero,
@@ -1098,8 +1182,10 @@ class _LoginPageState extends State<LoginPage>
                                 fontSize: 12.5 * uiScale)),
                       ],
                       SizedBox(height: 14 * uiScale),
-                      _morphButton(
-                          'Sign in', uiScale, _busy ? null : _trySignIn),
+                      _Rise(
+                          delayMs: 260,
+                          child: _morphButton(
+                              'Sign in', uiScale, _busy ? null : _trySignIn)),
                       SizedBox(height: 14 * uiScale),
                       Center(
                         child: Text('OR CONTINUE WITH',
@@ -1110,7 +1196,7 @@ class _LoginPageState extends State<LoginPage>
                                 letterSpacing: 1.4)),
                       ),
                       SizedBox(height: 10 * uiScale),
-                      _wideSocialRow(uiScale, stacked: true),
+                      _Rise(delayMs: 380, child: _wideSocialRow(uiScale, stacked: true)),
                       SizedBox(height: 14 * uiScale),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -1120,15 +1206,23 @@ class _LoginPageState extends State<LoginPage>
                                   color: Colors.white60,
                                   fontSize: 12.5 * uiScale)),
                           GestureDetector(
-                            onTap: () {},
-                            child: Text('Register here',
-                                style: TextStyle(
-                                    color: kIrisAccent,
-                                    fontSize: 12.5 * uiScale,
-                                    fontWeight: FontWeight.w700)),
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => setState(() {
+                              _showRegister = true;
+                              _error = null;
+                            }),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              child: Text('Register here',
+                                  style: TextStyle(
+                                      color: kIrisAccent,
+                                      fontSize: 12.5 * uiScale,
+                                      fontWeight: FontWeight.w700)),
+                            ),
                           ),
                         ],
                       ),
+                      ],
                     ],
                   ),
                 ),
@@ -1643,7 +1737,7 @@ class _LoginPageState extends State<LoginPage>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            FaIcon(icon, color: Colors.white, size: 22 * uiScale),
+            brandIcon(icon, 22 * uiScale),
             SizedBox(height: 4 * uiScale),
             Text(label,
                 style:
@@ -2559,6 +2653,28 @@ class _ShimmerText extends StatelessWidget {
               style: style.copyWith(color: Colors.white)),
         );
       },
+    );
+  }
+}
+
+
+/// Fade and slide-up entrance, staggered by [delayMs]. Plays once when the
+/// widget first appears (for example when the form switches mode).
+class _Rise extends StatelessWidget {
+  final int delayMs;
+  final Widget child;
+  const _Rise({required this.delayMs, required this.child});
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: Duration(milliseconds: 520 + delayMs),
+      curve: Interval(delayMs / (520 + delayMs), 1, curve: Curves.easeOutCubic),
+      builder: (_, v, c) => Opacity(
+        opacity: v.clamp(0.0, 1.0),
+        child: Transform.translate(offset: Offset(0, 18 * (1 - v)), child: c),
+      ),
+      child: child,
     );
   }
 }
