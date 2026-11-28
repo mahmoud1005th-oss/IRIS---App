@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'login_page.dart' show kIrisAccent, IrisLogo;
+import 'login_page.dart' show kIrisAccent, IrisLogo, LoginPage;
 import 'v34_home.dart' show IrisHome;
 import '../../core/services/auth_service.dart';
 
@@ -254,10 +254,17 @@ Widget _srowRaw(IconData ic, String t, {String? val, String? sub, bool pro = fal
       ]),
     );
 
+void _notYet(BuildContext c) {
+  ScaffoldMessenger.of(c).showSnackBar(const SnackBar(
+    content: Directionality(textDirection: TextDirection.rtl, child: Text('ده الشكل بس دلوقتي، هيشتغل لما نوصّل السيرفر')),
+    duration: Duration(seconds: 2),
+  ));
+}
+
 Widget _srow(IconData ic, String t, {String? val, String? sub, bool pro = false, bool last = false, Widget? to}) => Builder(
       builder: (c) => GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: to == null ? null : () => Navigator.of(c).push(MaterialPageRoute(builder: (_) => to)),
+        onTap: to == null ? () => _notYet(c) : () => Navigator.of(c).push(MaterialPageRoute(builder: (_) => to)),
         child: _srowRaw(ic, t, val: val, sub: sub, pro: pro, last: last),
       ),
     );
@@ -267,24 +274,40 @@ Widget _group(String title, List<Widget> rows) => Column(crossAxisAlignment: Cro
       Container(margin: const EdgeInsets.symmetric(horizontal: 14), decoration: BoxDecoration(color: _card, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white10)), child: Column(children: rows)),
     ]);
 
-class SettingsV5 extends StatelessWidget {
-  const SettingsV5({super.key});
-  Widget _theme() => Container(
+class _ThemeChips extends StatefulWidget {
+  const _ThemeChips();
+  @override
+  State<_ThemeChips> createState() => _ThemeChipsState();
+}
+
+class _ThemeChipsState extends State<_ThemeChips> {
+  int _sel = 2;
+  @override
+  Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
         child: Row(children: [
           const Icon(Icons.brightness_6_outlined, color: kIrisAccent, size: 21),
           const SizedBox(width: 12),
           const Text('المظهر', style: TextStyle(color: Colors.white, fontSize: 14.5)),
           const Spacer(),
-          for (final o in const [['فاتح', false], ['داكن', false], ['تلقائي', true]])
-            Container(
-              margin: const EdgeInsets.only(right: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(color: o[1] == true ? kIrisAccent.withOpacity(.2) : Colors.transparent, borderRadius: BorderRadius.circular(10), border: Border.all(color: o[1] == true ? kIrisAccent : Colors.white24)),
-              child: Text(o[0] as String, style: TextStyle(color: o[1] == true ? kIrisAccent : Colors.white60, fontSize: 12)),
+          for (var i = 0; i < 3; i++)
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => setState(() => _sel = i),
+              child: Container(
+                margin: const EdgeInsets.only(right: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(color: _sel == i ? kIrisAccent.withOpacity(.2) : Colors.transparent, borderRadius: BorderRadius.circular(10), border: Border.all(color: _sel == i ? kIrisAccent : Colors.white24)),
+                child: Text(const ['فاتح', 'داكن', 'تلقائي'][i], style: TextStyle(color: _sel == i ? kIrisAccent : Colors.white60, fontSize: 12)),
+              ),
             ),
         ]),
       );
+}
+
+class SettingsV5 extends StatelessWidget {
+  const SettingsV5({super.key});
+  Widget _theme() => const _ThemeChips();
   @override
   Widget build(BuildContext context) {
     return Directionality(
@@ -334,7 +357,10 @@ class SettingsV5 extends StatelessWidget {
               _group('الأمان', [
                 _srow(Icons.lock_outline, 'الخصوصية والأمان', sub: 'قفل التطبيق بالبصمة', last: true, to: const PrivacyV6()),
               ]),
-              _btn('تسجيل الخروج'),
+              Builder(builder: (c) => _btn('تسجيل الخروج', onTap: () async {
+                    await AuthService().signOut();
+                    if (c.mounted) Navigator.of(c).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const LoginPage()), (_) => false);
+                  })),
               const Padding(padding: EdgeInsets.only(top: 12), child: Center(child: Text('IRIS · الإصدار 3.5', style: TextStyle(color: Colors.white24, fontSize: 11)))),
               const SizedBox(height: 14),
             ]),
@@ -551,48 +577,119 @@ class AdminV5 extends StatelessWidget {
 }
 
 // ---------- شاشات فرعية (شكل فقط، الخدمة وراها لسه مش شغالة) ----------
-Widget _tog(IconData ic, String t, bool on, {String? sub}) => Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white10))),
-      child: Row(children: [
-        Icon(ic, color: kIrisAccent, size: 21),
-        const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(t, style: const TextStyle(color: Colors.white, fontSize: 14.5)),
-          if (sub != null) Text(sub, style: const TextStyle(color: Colors.white38, fontSize: 10.5)),
-        ])),
-        Container(
-          width: 44, height: 24, padding: const EdgeInsets.all(3),
-          alignment: on ? Alignment.centerLeft : Alignment.centerRight,
-          decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), color: on ? kIrisAccent : Colors.white12),
-          child: Container(width: 18, height: 18, decoration: BoxDecoration(shape: BoxShape.circle, color: on ? Colors.black : Colors.white54)),
-        ),
-      ]),
-    );
+Widget _tog(IconData ic, String t, bool on, {String? sub}) => _TogW(ic, t, on, sub);
 
-Widget _slide(String t, double v, String end) => Padding(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
-      child: Column(children: [
-        Row(children: [Text(t, style: const TextStyle(color: Colors.white, fontSize: 14)), const Spacer(), Text(end, style: const TextStyle(color: Colors.white54, fontSize: 12))]),
-        Slider(value: v, onChanged: (_) {}, activeColor: kIrisAccent, inactiveColor: Colors.white12),
-      ]),
-    );
+class _TogW extends StatefulWidget {
+  final IconData ic;
+  final String t;
+  final bool on;
+  final String? sub;
+  const _TogW(this.ic, this.t, this.on, this.sub);
+  @override
+  State<_TogW> createState() => _TogWState();
+}
 
-Widget _pill(String t, bool on) => Container(
+class _TogWState extends State<_TogW> {
+  late bool _on = widget.on;
+  String get _key => widget.t == 'قفل التطبيق بالبصمة' ? 'fingerprint_enabled' : 'tog_${widget.t}';
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((p) {
+      final v = p.getBool(_key);
+      if (v != null && mounted) setState(() => _on = v);
+    }).catchError((_) {});
+  }
+
+  Future<void> _flip() async {
+    setState(() => _on = !_on);
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool(_key, _on);
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final on = _on;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _flip,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white10))),
+        child: Row(children: [
+          Icon(widget.ic, color: kIrisAccent, size: 21),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(widget.t, style: const TextStyle(color: Colors.white, fontSize: 14.5)),
+            if (widget.sub != null) Text(widget.sub!, style: const TextStyle(color: Colors.white38, fontSize: 10.5)),
+          ])),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            width: 44, height: 24, padding: const EdgeInsets.all(3),
+            alignment: on ? Alignment.centerLeft : Alignment.centerRight,
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), color: on ? kIrisAccent : Colors.white12),
+            child: Container(width: 18, height: 18, decoration: BoxDecoration(shape: BoxShape.circle, color: on ? Colors.black : Colors.white54)),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+Widget _slide(String t, double v, String end) => _SlideW(t, v, end);
+
+class _SlideW extends StatefulWidget {
+  final String t, end;
+  final double v;
+  const _SlideW(this.t, this.v, this.end);
+  @override
+  State<_SlideW> createState() => _SlideWState();
+}
+
+class _SlideWState extends State<_SlideW> {
+  late double _v = widget.v;
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+        child: Column(children: [
+          Row(children: [Text(widget.t, style: const TextStyle(color: Colors.white, fontSize: 14)), const Spacer(), Text(widget.end, style: const TextStyle(color: Colors.white54, fontSize: 12))]),
+          Slider(value: _v, onChanged: (x) => setState(() => _v = x), activeColor: kIrisAccent, inactiveColor: Colors.white12),
+        ]),
+      );
+}
+
+Widget _pill(String t, bool on, {VoidCallback? onTap}) => GestureDetector(behavior: HitTestBehavior.opaque, onTap: onTap, child: Container(
       margin: const EdgeInsets.only(left: 6),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
       decoration: BoxDecoration(color: on ? kIrisAccent.withOpacity(.2) : Colors.transparent, borderRadius: BorderRadius.circular(12), border: Border.all(color: on ? kIrisAccent : Colors.white24)),
       child: Text(t, style: TextStyle(color: on ? kIrisAccent : Colors.white60, fontSize: 12.5)),
-    );
+    ));
 
-Widget _pills(String t, List<String> o, int sel) => Padding(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(t, style: const TextStyle(color: Colors.white, fontSize: 14)),
-        const SizedBox(height: 8),
-        Wrap(runSpacing: 6, children: [for (var i = 0; i < o.length; i++) _pill(o[i], i == sel)]),
-      ]),
-    );
+Widget _pills(String t, List<String> o, int sel) => _PillsW(t, o, sel);
+
+class _PillsW extends StatefulWidget {
+  final String t;
+  final List<String> o;
+  final int sel;
+  const _PillsW(this.t, this.o, this.sel);
+  @override
+  State<_PillsW> createState() => _PillsWState();
+}
+
+class _PillsWState extends State<_PillsW> {
+  late int _sel = widget.sel;
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(widget.t, style: const TextStyle(color: Colors.white, fontSize: 14)),
+          const SizedBox(height: 8),
+          Wrap(runSpacing: 6, children: [for (var i = 0; i < widget.o.length; i++) _pill(widget.o[i], i == _sel, onTap: () => setState(() => _sel = i))]),
+        ]),
+      );
+}
 
 Widget _tag(String t) => Container(
       margin: const EdgeInsets.only(left: 6),
@@ -606,13 +703,13 @@ Widget _off(String t) => Padding(
       child: Row(children: [const Icon(Icons.info_outline, color: Colors.white24, size: 15), const SizedBox(width: 6), Expanded(child: Text(t, style: const TextStyle(color: Colors.white30, fontSize: 11)))]),
     );
 
-Widget _btn(String t, {bool danger = false}) => Container(
+Widget _btn(String t, {bool danger = false, VoidCallback? onTap}) => Builder(builder: (c) => GestureDetector(behavior: HitTestBehavior.opaque, onTap: onTap ?? () => _notYet(c), child: Container(
       margin: const EdgeInsets.fromLTRB(14, 10, 14, 0),
       height: 44,
       alignment: Alignment.center,
       decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: danger ? const Color(0xFFE57373) : Colors.white54)),
       child: Text(t, style: TextStyle(color: danger ? const Color(0xFFE57373) : Colors.white, fontWeight: FontWeight.w700)),
-    );
+    )));
 
 Widget _subScreen(String title, List<Widget> body, {String off = 'الخدمة دي لسه مش مفعّلة، الشكل بس.'}) => Directionality(
       textDirection: TextDirection.rtl,
@@ -709,32 +806,47 @@ class DeviceControlsV6 extends StatelessWidget {
 
 Widget _field(String hint, {bool tall = false, IconData? ic}) => Container(
       margin: const EdgeInsets.fromLTRB(14, 8, 14, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14),
       constraints: BoxConstraints(minHeight: tall ? 110 : 46),
-      alignment: tall ? Alignment.topRight : Alignment.centerRight,
       decoration: BoxDecoration(color: _card, borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.white12)),
-      child: Row(mainAxisSize: MainAxisSize.max, crossAxisAlignment: tall ? CrossAxisAlignment.start : CrossAxisAlignment.center, children: [
-        if (ic != null) ...[Icon(ic, color: Colors.white38, size: 19), const SizedBox(width: 10)],
-        Text(hint, style: const TextStyle(color: Colors.white38, fontSize: 13.5)),
+      child: Row(crossAxisAlignment: tall ? CrossAxisAlignment.start : CrossAxisAlignment.center, children: [
+        if (ic != null) Padding(padding: EdgeInsets.only(top: tall ? 14 : 0), child: Icon(ic, color: Colors.white38, size: 19)),
+        if (ic != null) const SizedBox(width: 10),
+        Expanded(
+          child: TextField(
+            maxLines: tall ? 5 : 1,
+            minLines: tall ? 4 : 1,
+            obscureText: hint.contains('كلمة السر'),
+            style: const TextStyle(color: Colors.white, fontSize: 13.5),
+            decoration: InputDecoration(border: InputBorder.none, hintText: hint, hintStyle: const TextStyle(color: Colors.white38, fontSize: 13.5), isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 12)),
+          ),
+        ),
       ]),
     );
 
-Widget _fill(String t) => Container(
+Widget _fill(String t) => Builder(builder: (c) => GestureDetector(behavior: HitTestBehavior.opaque, onTap: () => _notYet(c), child: Container(
       margin: const EdgeInsets.fromLTRB(14, 12, 14, 0),
       height: 46,
       alignment: Alignment.center,
       decoration: BoxDecoration(color: kIrisAccent, borderRadius: BorderRadius.circular(14)),
       child: Text(t, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w800, fontSize: 14.5)),
-    );
+    )));
 
-class AddAccountV6 extends StatelessWidget {
+class AddAccountV6 extends StatefulWidget {
   const AddAccountV6({super.key});
   @override
+  State<AddAccountV6> createState() => _AddAccountV6State();
+}
+
+class _AddAccountV6State extends State<AddAccountV6> {
+  bool _login = true;
+  @override
   Widget build(BuildContext c) => _subScreen('إضافة أو إنشاء حساب', [
-        Padding(padding: const EdgeInsets.fromLTRB(14, 8, 14, 0), child: Row(children: [_pill('تسجيل دخول', true), _pill('حساب جديد', false)])),
+        Padding(padding: const EdgeInsets.fromLTRB(14, 8, 14, 0), child: Row(children: [_pill('تسجيل دخول', _login, onTap: () => setState(() => _login = true)), _pill('حساب جديد', !_login, onTap: () => setState(() => _login = false))])),
         _field('البريد الإلكتروني', ic: Icons.mail_outline),
         _field('كلمة السر', ic: Icons.lock_outline),
-        _fill('متابعة'),
+        if (!_login) _field('الاسم', ic: Icons.badge_outlined),
+        _fill(_login ? 'متابعة' : 'إنشاء الحساب'),
         _lbl('أو'),
         _group('', [
           _srow(Icons.g_mobiledata, 'المتابعة بحساب جوجل'),
