@@ -2,11 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 
-// ذكاء آيرس (الرد على الرسائل). نقطة التوصيل لكود ديب سيك / السيرفر.
-// لما السيرفر يجهز: حط الرابط في kChatEndpoint. السيرفر يستقبل POST JSON:
-// {"messages":[{"role":"user|assistant","text":"..."}], "mode":"auto|flashLite|flash|proLite", "lang":"ar"}
+// ذكاء آيرس (الرد على الرسائل). نقطة التوصيل للـ Cloudflare Worker.
+// لما محمود ينشر الـ Worker: حط رابطه في kChatEndpoint وكلمة السر المشتركة في kAppToken.
+// السيرفر يستقبل POST JSON:
+// {"messages":[{"role":"user|assistant","content":"..."}], "mode":"auto|flashLite|flash|proLite", "lang":"ar"}
 // ويرد JSON: {"text":"..."}
-const String kChatEndpoint = ''; // فاضي = الذكاء مش متوصل، والتطبيق بيعرض ردود تجريبية
+const String kChatEndpoint = 'https://iris-brain.mahmoud1005th.workers.dev'; // فاضي = الذكاء مش متوصل، والتطبيق بيعرض ردود تجريبية
+const String kAppToken = 'iris-63e423f565dc5cae6e0d'; // نفس كلمة APP_TOKEN المتخزنة في الـ Worker؛ فاضي = من غير
 
 class ChatTurn {
   final String role; // user | assistant
@@ -51,12 +53,14 @@ class HttpChatService implements ChatService {
   Future<ChatResult> reply(List<ChatTurn> history,
       {String mode = 'auto', String lang = 'ar'}) async {
     try {
+      final headers = {'Content-Type': 'application/json'};
+      if (kAppToken.isNotEmpty) headers['X-IRIS-Token'] = kAppToken;
       final res = await http
           .post(Uri.parse(endpoint),
-              headers: {'Content-Type': 'application/json'},
+              headers: headers,
               body: jsonEncode({
                 'messages': [
-                  for (final t in history) {'role': t.role, 'text': t.text}
+                  for (final t in history) {'role': t.role, 'content': t.text}
                 ],
                 'mode': mode,
                 'lang': lang,
